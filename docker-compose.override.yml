@@ -1,0 +1,37 @@
+services:
+  backend:
+    # Dev: recarga al cambiar código montado en ./src/backend/app (evita 500 por ORM viejo en memoria).
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--reload-dir", "/app/app"]
+
+  frontend:
+    build:
+      context: ./src/frontend
+      dockerfile: ../../infra/docker/Dockerfile.frontend
+      target: deps
+      no_cache: false
+    # next dev requiere NODE_ENV=development; con production + volumen .next viejo aparecen 500
+    # (react-dom/cjs faltante, required-server-files.json ENOENT). .next en el bind mount (gitignored), no volumen nombrado.
+    # Si ves 500 y "Can't resolve react-dom": borra el volumen frontend_node_modules y levantá de nuevo,
+    # o una vez: docker compose run --rm frontend sh -c "npm ci --include=dev"
+    command: sh -c "npm install --include=dev && npm run dev -- --hostname 0.0.0.0 --port 3000"
+    environment:
+      NODE_ENV: development
+      NEXT_TELEMETRY_DISABLED: "1"
+      WATCHPACK_POLLING: "true"
+      CHOKIDAR_USEPOLLING: "true"
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "require('http').get('http://127.0.0.1:3000/', (r) => process.exit(r.statusCode >= 200 && r.statusCode < 400 ? 0 : 1)).on('error', () => process.exit(1))"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    volumes:
+      - ./src/frontend:/app
+      - frontend_node_modules:/app/node_modules
+
+volumes:
+  frontend_node_modules:

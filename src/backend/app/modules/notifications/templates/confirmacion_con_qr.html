@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Tu reserva está confirmada — BLOQUE</title>
+</head>
+<body>
+    <p>Hola {{ customer_name }},</p>
+    <p><strong>Tu reserva en BLOQUE está confirmada.</strong></p>
+    <p><strong>Espacio:</strong> {{ space_name }}<br>
+    <strong>Fecha:</strong> {{ fecha }}<br>
+    <strong>Horario:</strong> {{ hora_inicio }} a {{ hora_fin }}</p>
+    {% if link_download_qr %}
+    <p>Descarga tu QR de acceso para el día del evento: <a href="{{ link_download_qr }}">Descargar QR</a></p>
+    {% endif %}
+    {% if link_portal %}
+    <p>También puedes ver el resumen y descargar tu QR desde el <a href="{{ link_portal }}">Portal del Cliente</a>.</p>
+    {% endif %}
+    <p>El QR es tu comprobante de acceso; preséntalo el día del evento. Cualquier duda, contacta a Operaciones.</p>
+    <p>— Equipo BLOQUE</p>
+</body>
+</html>

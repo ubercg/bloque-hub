@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Recordatorio: tu reserva expira pronto — BLOQUE</title>
+</head>
+<body>
+    <p>Hola {{ customer_name }},</p>
+    <p>Tu pre-reserva para <strong>{{ space_name }}</strong> expira en aproximadamente 4 horas ({{ ttl_expires_at }}).</p>
+    <p>Si ya realizaste el pago SPEI, sube tu comprobante para que podamos verificar y confirmar tu reserva.</p>
+    {% if link_upload_slip %}
+    <p><a href="{{ link_upload_slip }}">Subir comprobante de pago</a></p>
+    {% endif %}
+    {% if link_portal %}
+    <p>O entra al <a href="{{ link_portal }}">Portal del Cliente</a>.</p>
+    {% endif %}
+    <p>Si no subes el comprobante antes de la hora límite, el espacio quedará liberado.</p>
+    <p>— Equipo BLOQUE</p>
+</body>
+</html>

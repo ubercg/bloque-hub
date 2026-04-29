@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Pase de Caja — BLOQUE</title>
+</head>
+<body>
+    <p>Hola {{ customer_name }},</p>
+    <p>Tu <strong>Pase de Caja</strong> para el evento completo está listo.</p>
+    <p><strong>Referencia de evento:</strong> {{ folio_evento }}</p>
+    <p><strong>Detalle por espacio y horario:</strong></p>
+    <table border="1" cellpadding="8" cellspacing="0" style="border-collapse:collapse;border-color:#ccc;">
+        <thead>
+            <tr style="background:#f5f5f5;">
+                <th align="left">Espacio</th>
+                <th align="left">Fecha</th>
+                <th align="left">Horario</th>
+                <th align="right">Importe</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for line in lines %}
+            <tr>
+                <td>{{ line.space_name }}</td>
+                <td>{{ line.fecha }}</td>
+                <td>{{ line.hora_inicio }} – {{ line.hora_fin }}</td>
+                <td align="right">{{ line.precio_fmt }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    <p><strong>Monto total a pagar:</strong> {{ monto_total }}</p>
+    <p><strong>Datos para pago SPEI:</strong><br>
+    CLABE: {{ clabe }}<br>
+    Referencia: {{ referencia_spei }}<br>
+    Banco: {{ banco }}</p>
+    {% if link_upload_slip %}
+    <p><a href="{{ link_upload_slip }}">Subir comprobante de pago</a></p>
+    {% endif %}
+    {% if link_portal %}
+    <p>También puedes subir tu comprobante desde el <a href="{{ link_portal }}">Portal del Cliente</a>.</p>
+    {% endif %}
+    <p>— Equipo BLOQUE</p>
+</body>
+</html>

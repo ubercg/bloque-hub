@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>Precotización — {{ event_name }}</title>
+  <style>
+    @page {
+      size: A4;
+      margin: 12mm 14mm 16mm 14mm;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      font-size: 9.5pt;
+      line-height: 1.45;
+      color: #1a1a1a;
+      margin: 0;
+    }
+    .pdf-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      padding: 0;
+      margin: 0 0 14px 0;
+      border-bottom: none;
+    }
+    .pdf-top-banner {
+      width: 100%;
+      height: 90px;
+      display: block;
+      margin-bottom: 10px;
+      object-fit: cover;
+      object-position: center;
+      border-radius: 0;
+    }
+    .pdf-header__logo {
+      height: 48px;
+      width: auto;
+      display: block;
+    }
+    .pdf-header__titles {
+      text-align: right;
+      flex: 1;
+      min-width: 200px;
+    }
+    .pdf-header__titles h1 {
+      margin: 0 0 0.2rem 0;
+      font-size: 1.15rem;
+      font-weight: 700;
+      color: #0f0b0c;
+    }
+    .doc-ref {
+      font-size: 8pt;
+      color: #555;
+      font-family: ui-monospace, monospace;
+    }
+    .generated {
+      font-size: 8.5pt;
+      color: #666;
+      margin-top: 0.25rem;
+    }
+    .client-card {
+      background: #f8f9fa;
+      border: 1px solid #e8e8e8;
+      border-radius: 6px;
+      padding: 0.65rem 0.85rem;
+      margin-bottom: 1rem;
+    }
+    .client-card h2 {
+      margin: 0 0 0.35rem 0;
+      font-size: 8pt;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: #555;
+      font-weight: 600;
+    }
+    .client-card p { margin: 0.15rem 0; font-size: 9.5pt; }
+
+    .card {
+      border: 1px solid #e5e7eb;
+      border-radius: 10px;
+      overflow: hidden;
+      margin-bottom: 1rem;
+    }
+    .card__head {
+      background: #f9fafb;
+      border-bottom: 1px solid #e5e7eb;
+      padding: 0.55rem 0.85rem;
+    }
+    .card__head h2 {
+      margin: 0;
+      font-size: 11pt;
+      font-weight: 700;
+      color: #111827;
+    }
+    table.detail {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 9pt;
+    }
+    table.detail thead th {
+      text-align: left;
+      font-weight: 600;
+      color: #374151;
+      background: #f9fafb;
+      border-bottom: 1px solid #e5e7eb;
+      padding: 0.45rem 0.65rem;
+    }
+    table.detail thead th.num { text-align: right; }
+    table.detail tbody td {
+      border-bottom: 1px solid #f3f4f6;
+      padding: 0.5rem 0.65rem;
+      vertical-align: top;
+      color: #111827;
+    }
+    table.detail tbody tr:nth-child(even) { background: #fafafa; }
+    table.detail .num { text-align: right; white-space: nowrap; }
+    table.detail .total-cell { font-weight: 700; color: #111827; }
+
+    .card__footer {
+      background: #f9fafb;
+      border-top: 1px solid #e5e7eb;
+      padding: 0.65rem 0.85rem;
+    }
+    .discount-block {
+      padding-bottom: 0.85rem;
+      margin-bottom: 0.65rem;
+      border-bottom: 1px solid #e5e7eb;
+    }
+    .discount-block .label {
+      font-size: 8.5pt;
+      font-weight: 600;
+      color: #4b5563;
+      margin-bottom: 0.35rem;
+    }
+    .discount-block .code-row {
+      font-size: 9pt;
+      color: #111827;
+      min-height: 1.2rem;
+    }
+    .discount-block .applied {
+      font-size: 8.5pt;
+      color: #047857;
+      margin-top: 0.35rem;
+    }
+    .totals-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 1rem;
+      font-size: 9.5pt;
+      margin: 0.2rem 0;
+    }
+    .totals-row .label { font-weight: 600; color: #374151; }
+    .totals-row .value { font-weight: 600; color: #111827; }
+    .totals-final {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-top: 0.5rem;
+      padding-top: 0.5rem;
+      border-top: 1px solid #ddd;
+      font-size: 11pt;
+    }
+    .totals-final .label { font-weight: 700; color: #111827; }
+    .totals-final .value {
+      font-weight: 700;
+      font-size: 12pt;
+      color: #2563eb;
+    }
+    .note {
+      font-size: 8pt;
+      color: #6b7280;
+      margin-top: 1rem;
+      line-height: 1.5;
+      border-top: 1px solid #e5e7eb;
+      padding-top: 0.65rem;
+    }
+    .pdf-footer {
+      margin-top: 1.5rem;
+      padding-top: 0.85rem;
+      border-top: 1px solid #ddd;
+    }
+    .pdf-footer__cot {
+      width: 100%;
+      height: 42px;
+      display: block;
+      margin-bottom: 0.65rem;
+      object-fit: contain;
+      object-position: center;
+    }
+    .pdf-footer__logos {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 1.25rem;
+      margin-bottom: 0.5rem;
+    }
+    .pdf-footer__logos img {
+      display: block;
+      height: 40px;
+      width: auto;
+      max-width: 180px;
+      object-fit: contain;
+    }
+    .pdf-footer__logos .logo-mun { height: 46px; max-width: 200px; }
+    .pdf-footer__legal {
+      font-size: 7.5pt;
+      color: #777;
+      text-align: right;
+      line-height: 1.35;
+    }
+
+    /* ======= Formato "Cotización" (para coincidir con screenshot) ======= */
+    .quote-bar {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    .quote-bar__title {
+      background: #0f0b0c;
+      color: #ffffff;
+      font-weight: 700;
+      padding: 7px 20px;
+      font-size: 10pt;
+      line-height: 1;
+    }
+    .quote-bar__pill {
+      background: #4c1d95;
+      padding: 7px 22px;
+      border-top-right-radius: 10px;
+      border-bottom-right-radius: 10px;
+    }
+    .quote-bar__box {
+      background: #ffffff;
+      border: 2px solid #0f0b0c;
+      width: 70px;
+      height: 18px;
+      border-radius: 2px;
+    }
+    .quote-date {
+      font-size: 10pt;
+      font-weight: 600;
+      color: #111827;
+      text-align: right;
+    }
+    .info-grid {
+      display: flex;
+      justify-content: space-between;
+      gap: 30px;
+      margin-top: 10px;
+    }
+    .info-left { flex: 1; }
+    .info-right { width: 240px; }
+    .info-line {
+      font-size: 10pt;
+      margin: 1px 0;
+      color: #111827;
+      line-height: 1.25;
+    }
+    .info-line strong { font-weight: 800; }
+
+    .note-label {
+      margin-top: 10px;
+      margin-bottom: 6px;
+      font-size: 10pt;
+      font-weight: 600;
+    }
+
+    table.quote-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 8.8pt;
+    }
+    table.quote-table th {
+      background: #4c1d95;
+      color: #ffffff;
+      font-weight: 700;
+      padding: 4px 6px;
+      border: 2px solid #0f0b0c;
+      text-align: left;
+    }
+    table.quote-table th.num { text-align: right; }
+    table.quote-table td {
+      border: 2px solid #0f0b0c;
+      padding: 2px 6px;
+      vertical-align: top;
+      color: #111827;
+    }
+    table.quote-table td.num { text-align: right; white-space: nowrap; }
+    table.quote-table td.cant { text-align: center; white-space: nowrap; }
+
+    .totals-wrap {
+      display: flex;
+      justify-content: flex-end;
+      margin-top: 6px;
+    }
+    .totals-box {
+      width: 230px;
+      font-size: 9.2pt;
+      color: #111827;
+    }
+    .subtotal-row {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 4px;
+      font-weight: 600;
+    }
+    .subtotal-row .label { color: #111827; }
+
+    .discount-row {
+      display: flex;
+      background: #4c1d95;
+      color: #ffffff;
+      margin-bottom: 2px;
+      border-radius: 0;
+      overflow: hidden;
+    }
+    .discount-row .label {
+      flex: 1;
+      padding: 4px 6px;
+      font-weight: 800;
+    }
+    .discount-row .value {
+      width: 105px;
+      padding: 4px 6px;
+      text-align: right;
+      font-weight: 800;
+    }
+
+    .total-row {
+      display: flex;
+      background: #4c1d95;
+      color: #ffffff;
+      overflow: hidden;
+    }
+    .total-row .label {
+      flex: 1;
+      padding: 4px 6px;
+      font-weight: 800;
+    }
+    .total-row .value {
+      width: 105px;
+      padding: 4px 6px;
+      text-align: right;
+      font-weight: 800;
+    }
+
+    .disclaimer {
+      margin-top: 46px;
+      font-size: 7.6pt;
+      color: #111827;
+      line-height: 1.35;
+    }
+    .disclaimer p { margin: 0 0 4px 0; }
+
+    .website {
+      margin-top: 26px;
+      text-align: center;
+      font-size: 9.2pt;
+      font-weight: 600;
+      color: #111827;
+      margin-bottom: 8px;
+    }
+    .pdf-footer {
+      margin-top: 0;
+      padding-top: 0;
+      border-top: none;
+    }
+    .pdf-footer__cot {
+      width: 100%;
+      height: 62px;
+      display: block;
+      object-fit: cover;
+      object-position: center;
+      margin-bottom: 0;
+    }
+  </style>
+</head>
+<body>
+  {% if header_cot_uri %}
+  <img class="pdf-top-banner" src="{{ header_cot_uri }}" alt="" />
+  {% endif %}
+  <header class="pdf-header">
+    <div class="quote-bar">
+      <div class="quote-bar__title">Cotización</div>
+      <div class="quote-bar__pill">
+        <div class="quote-bar__box" aria-hidden="true"></div>
+      </div>
+    </div>
+    <div class="quote-date">Fecha: {{ quote_fecha }}</div>
+  </header>
+
+  <div class="info-grid">
+    <div class="info-left">
+      <div class="info-line">
+        <strong>NOMBRE DE LA EMPRESA:</strong> {{ client_name }}
+      </div>
+      <div class="info-line">
+        <strong>Nombre del evento:</strong> {{ event_name }}
+      </div>
+      <div class="info-line">
+        <strong>Fecha del evento:</strong> {{ event_dates_span }}
+      </div>
+    </div>
+    <div class="info-right">
+      <div class="info-line">
+        <strong>Horario:</strong> {{ horario }}
+      </div>
+      <div class="info-line">
+        <strong>Aforo:</strong> {{ aforo_personas }} personas.
+      </div>
+    </div>
+  </div>
+
+  <div class="note-label">Nota.</div>
+
+  <table class="quote-table">
+    <thead>
+      <tr>
+        <th>Descripción</th>
+        <th>Tiempo</th>
+        <th class="num">Precio</th>
+        <th>Cantidad</th>
+        <th class="num">Total</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in order_rows %}
+      <tr>
+        <td>{{ row.espacio }}</td>
+        <td>{{ row.tiempo }}</td>
+        <td class="num">{{ row.precio_unitario }}</td>
+        <td class="cant">{{ row.cantidad }}</td>
+        <td class="num">{{ row.total }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <div class="totals-wrap">
+    <div class="totals-box">
+      <div class="subtotal-row">
+        <span class="label">Subtotal:</span>
+        <span class="value">{{ subtotal }}</span>
+      </div>
+
+      <div class="discount-row">
+        <div class="label">Descuento {{ discount_percent }}%</div>
+        <div class="value">{{ discount_amount }}</div>
+      </div>
+
+      <div class="total-row">
+        <div class="label">Total:</div>
+        <div class="value">{{ grand_total }}</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="disclaimer">
+    <p>
+      La presente pre-cotización se encuentra sujeta a modificaciones. Incluye exclusivamente el uso del
+      espacio y el equipamiento fijo instalado en la sala, cualquier equipo adicional o servicio complementario
+      no se encuentra contratado, incluyendo únicamente los servicios de limpieza, servicios de impresión,
+      servicios médicos, seguridad, personal de apoyo (staff) y coffee break.
+    </p>
+    <p>
+      La fecha solicitada quedará confirmada únicamente mediante el pago total dentro del periodo de vigencia.
+    </p>
+    <p><strong>Vigencia:</strong> 5 días hábiles.</p>
+    <p><strong>Forma de pago:</strong> Una sola exhibición.</p>
+  </div>
+
+  <div class="website">bloqueqro.municipiodequeretaro.gob.mx</div>
+
+  <footer class="pdf-footer">
+    {% if footer_cot_uri %}
+    <img class="pdf-footer__cot" src="{{ footer_cot_uri }}" alt="" />
+    {% endif %}
+  </footer>
+</body>
+</html>

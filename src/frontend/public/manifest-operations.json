@@ -1,0 +1,10 @@
+{
+  "name": "BLOQUE Operaciones",
+  "short_name": "BLOQUE Ops",
+  "description": "Checklists y scanner de acceso para operaciones",
+  "start_url": "/operations/checklists",
+  "display": "standalone",
+  "background_color": "#f3f4f6",
+  "theme_color": "#2563eb",
+  "orientation": "portrait-primary"
+}

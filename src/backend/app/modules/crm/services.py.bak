@@ -1,0 +1,215 @@
+"""CRM services: quote state machine, create_quote (SOFT_HOLD), PDF generation, contract send."""
+
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from pathlib import Path
+from uuid import UUID
+
+from jinja2 import Environment, FileSystemLoader
+from sqlalchemy.orm import Session, joinedload
+from weasyprint import HTML
+
+from app.core.config import settings
+from app.modules.crm.fea import FEAProviderMock, IFEAProvider, SendForSignatureResult
+from app.modules.crm.fea.adapter import SignerInfo
+from app.modules.crm.models import Contract, ContractStatus, Lead, Quote, QuoteItem, QuoteStatus
+from app.modules.crm.schemas import QuoteItemCreate
+from app.modules.inventory.services import (
+    SlotNotAvailableError,
+    apply_soft_hold_for_quote,
+)
+
+# Allowed transitions: from_status -> [to_statuses]
+ALLOWED_QUOTE_TRANSITIONS: dict[QuoteStatus, list[QuoteStatus]] = {
+    QuoteStatus.DRAFT: [QuoteStatus.DRAFT_PENDING_OPS, QuoteStatus.SENT],
+    QuoteStatus.DRAFT_PENDING_OPS: [QuoteStatus.SENT],
+    QuoteStatus.SENT: [QuoteStatus.APPROVED, QuoteStatus.DIGITAL_APPROVED],
+    QuoteStatus.APPROVED: [],
+    QuoteStatus.DIGITAL_APPROVED: [],,
+}
+
+
+class InvalidQuoteTransitionError(Exception):
+    """Raised when a quote status transition is not allowed."""
+
+
+def _check_quote_transition(current: QuoteStatus, new: QuoteStatus) -> None:
+    allowed = ALLOWED_QUOTE_TRANSITIONS.get(current, [])
+    if new not in allowed:
+        raise InvalidQuoteTransitionError(
+            f"Transition from {current.value} to {new.value} is not allowed"
+        )
+
+
+def transition_quote_status(
+    quote: Quote, new_status: QuoteStatus, db: Session
+) -> None:
+    """Validate transition and update quote.status. Raises InvalidQuoteTransitionError if not allowed."""
+    _check_quote_transition(quote.status, new_status)
+    quote.status = new_status
+    
+    if new_status == QuoteStatus.DIGITAL_APPROVED:
+        # Snapshot UMA
+        try:
+            from app.modules.uma_rates.services import get_current_uma_rate
+            uma = get_current_uma_rate(db)
+            quote.uma_snapshot_value = uma.valor_diario
+            quote.uma_snapshot_reference = str(uma.year)
+        except Exception:
+            pass # No UMA rate found
+
+    if new_status == QuoteStatus.APPROVED or new_status == QuoteStatus.DIGITAL_APPROVED:
+        # Freeze prices
+        for item in quote.items:
+            item.frozen_price = item.precio
+
+    db.flush()
+
+
+def create_quote(
+    tenant_id: UUID,
+    lead_id: UUID,
+    items: list[QuoteItemCreate],
+    db: Session,
+) -> Quote:
+    """
+    Create a Quote (DRAFT) with QuoteItems and apply SOFT_HOLD on all slots atomically.
+    Raises SlotNotAvailableError if any slot is not available; caller must rollback.
+    """
+    lead = db.get(Lead, lead_id)
+    if lead is None or lead.tenant_id != tenant_id:
+        raise ValueError("Lead not found or does not belong to tenant")
+
+    total = sum(it.precio for it in items)
+    quote = Quote(
+        tenant_id=tenant_id,
+        lead_id=lead_id,
+        status=QuoteStatus.DRAFT,
+        total=total,
+    )
+    db.add(quote)
+    db.flush()
+
+    for i, it in enumerate(items):
+        db.add(
+            QuoteItem(
+                quote_id=quote.id,
+                space_id=it.space_id,
+                fecha=it.fecha,
+                hora_inicio=it.hora_inicio,
+                hora_fin=it.hora_fin,
+                precio=it.precio,
+                item_order=i,
+            )
+        )
+    db.flush()
+
+    slots = [
+        (it.space_id, it.fecha, it.hora_inicio, it.hora_fin)
+        for it in items
+    ]
+    apply_soft_hold_for_quote(quote.id, slots, tenant_id, db)
+    return quote
+
+
+def generate_quote_pdf(quote: Quote, db: Session) -> bytes:
+    """Render quote (with lead and items) to HTML from template, then to PDF. Returns PDF bytes."""
+    # Eager-load lead and items (and item.space for template)
+    q = (
+        db.query(Quote)
+        .options(
+            joinedload(Quote.lead),
+            joinedload(Quote.items).joinedload(QuoteItem.space),
+        )
+        .filter(Quote.id == quote.id)
+        .first()
+    )
+    if q is None:
+        raise ValueError("Quote not found")
+    quote = q
+
+    templates_dir = Path(__file__).parent / "templates"
+    env = Environment(loader=FileSystemLoader(str(templates_dir)))
+    template = env.get_template("quote_template.html")
+    html = template.render(quote=quote, lead=quote.lead)
+    pdf_bytes = HTML(string=html).write_pdf()
+    return pdf_bytes
+
+
+def generate_contract_pdf(quote: Quote, db: Session) -> bytes:
+    """Render contract (quote + lead + items) from template to PDF. Returns PDF bytes."""
+    q = (
+        db.query(Quote)
+        .options(
+            joinedload(Quote.lead),
+            joinedload(Quote.items).joinedload(QuoteItem.space),
+        )
+        .filter(Quote.id == quote.id)
+        .first()
+    )
+    if q is None:
+        raise ValueError("Quote not found")
+    quote = q
+    lead = quote.lead
+    templates_dir = Path(__file__).parent / "templates"
+    env = Environment(loader=FileSystemLoader(str(templates_dir)))
+    template = env.get_template("contract_template.html")
+    html = template.render(quote=quote, lead=lead)
+    pdf_bytes = HTML(string=html).write_pdf()
+    return pdf_bytes
+
+
+def _get_fea_provider() -> IFEAProvider:
+    """Return FEA provider (mock or real) from config."""
+    if settings.FEA_PROVIDER.lower() == "mock":
+        return FEAProviderMock()
+    return FEAProviderMock()
+
+
+def send_contract_for_signature(
+    quote: Quote,
+    callback_url: str,
+    db: Session,
+) -> Contract:
+    """
+    Generate contract PDF, send to FEA provider (mock), create Contract with status SENT.
+    Quote must be APPROVED; Lead must have email. Raises ValueError if not.
+    """
+    if quote.status != QuoteStatus.APPROVED:
+        raise ValueError("Quote must be APPROVED to send contract")
+    q = (
+        db.query(Quote)
+        .options(joinedload(Quote.lead), joinedload(Quote.items).joinedload(QuoteItem.space))
+        .filter(Quote.id == quote.id)
+        .first()
+    )
+    if q is None:
+        raise ValueError("Quote not found")
+    quote = q
+    lead = quote.lead
+    if not lead or not lead.email:
+        raise ValueError("Lead must have email to send contract")
+    existing = db.query(Contract).filter(Contract.quote_id == quote.id).first()
+    if existing:
+        raise ValueError("Contract already exists for this quote")
+    pdf_bytes = generate_contract_pdf(quote, db)
+    signers = [SignerInfo(email=lead.email, name=lead.name)]
+    provider = _get_fea_provider()
+    result: SendForSignatureResult = provider.send_for_signature(
+        pdf_bytes=pdf_bytes,
+        signers=signers,
+        title=f"Contrato cotización {quote.id}",
+        callback_url=callback_url,
+    )
+    contract = Contract(
+        tenant_id=quote.tenant_id,
+        quote_id=quote.id,
+        status=ContractStatus.SENT,
+        provider_document_id=result.provider_document_id,
+        fea_provider=settings.FEA_PROVIDER,
+        sent_at=datetime.now(timezone.utc),
+    )
+    db.add(contract)
+    db.flush()
+    return contract

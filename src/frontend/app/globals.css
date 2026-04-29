@@ -1,0 +1,68 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+}
+
+/* Design tokens — BLOQUE Hub (Minimalism & Swiss, conversion-focused) */
+:root {
+  --color-primary: #1e3a8a;
+  --color-primary-light: #3b82f6;
+  --color-cta: #f97316;
+  --color-cta-hover: #ea580c;
+  --color-bg-soft: #eff6ff;
+  --color-text: #0f172a;
+  --color-text-muted: #57534e;
+  /* Catálogo — fondo base blanco; acentos ámbar en UI */
+  --catalog-cream: #ffffff;
+  --catalog-amber-ink: #78350f;
+  --catalog-accent-blue: #2563eb;
+}
+
+/* Catálogo: tipografía cargada en `catalog/layout.tsx` (next/font variables) */
+.catalog-shell {
+  font-family: var(--font-catalog-body), ui-sans-serif, system-ui, sans-serif;
+}
+
+.catalog-shell h1,
+.catalog-shell h2,
+.catalog-shell .font-catalog-display {
+  font-family: var(--font-catalog-display), ui-sans-serif, system-ui, sans-serif;
+}
+
+/* Respect reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Custom scrollbar styles */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #888;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+
+/* Smooth transitions (overridden by prefers-reduced-motion) */
+* {
+  transition-property: background-color, border-color, color, fill, stroke, box-shadow;
+  transition-duration: 200ms;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+}

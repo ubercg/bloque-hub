@@ -1,0 +1,146 @@
+services:
+  db:
+    image: postgres:17
+    container_name: bloque-hub-db
+    ports:
+    - 5432:5432
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-bloque}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-bloque_secret}
+      POSTGRES_DB: ${POSTGRES_DB:-bloque_hub}
+    volumes:
+    - dbdata:/var/lib/postgresql/data
+    networks:
+    - app-network
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - pg_isready -U ${POSTGRES_USER:-bloque} -d ${POSTGRES_DB:-bloque_hub}
+      interval: 5s
+      timeout: 5s
+      retries: 5
+  redis:
+    image: redis:7-alpine
+    container_name: bloque-hub-redis
+    networks:
+    - app-network
+    expose:
+    - '6379'
+  backend:
+    build:
+      context: ./src/backend
+      dockerfile: ../../infra/docker/Dockerfile.backend
+    container_name: bloque-hub-backend
+    env_file:
+    - .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-bloque}:${POSTGRES_PASSWORD:-bloque_secret}@db:5432/${POSTGRES_DB:-bloque_hub}
+      APP_DATABASE_URL: postgresql://bloque_app:bloque_app_secret@db:5432/${POSTGRES_DB:-bloque_hub}
+      CELERY_BROKER_URL: redis://redis:6379/0
+    volumes:
+    - backenddata:/app/data
+    - ./src/backend/app:/app/app
+    - ./src/backend/tests:/app/tests
+    - ./src/backend/alembic:/app/alembic
+    - ./src/frontend/public:/app/src/frontend/public
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    networks:
+    - app-network
+    expose:
+    - '8000'
+    healthcheck:
+      test:
+      - CMD
+      - python
+      - -c
+      - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/system/health')
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+  celery_worker:
+    build:
+      context: ./src/backend
+      dockerfile: ../../infra/docker/Dockerfile.backend
+    container_name: bloque-hub-celery-worker
+    command: celery -A app.celery_app worker --loglevel=info
+    env_file:
+    - .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-bloque}:${POSTGRES_PASSWORD:-bloque_secret}@db:5432/${POSTGRES_DB:-bloque_hub}
+      APP_DATABASE_URL: postgresql://bloque_app:bloque_app_secret@db:5432/${POSTGRES_DB:-bloque_hub}
+      CELERY_BROKER_URL: redis://redis:6379/0
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    networks:
+    - app-network
+  celery_beat:
+    build:
+      context: ./src/backend
+      dockerfile: ../../infra/docker/Dockerfile.backend
+    container_name: bloque-hub-celery-beat
+    command: celery -A app.celery_app beat --loglevel=info
+    env_file:
+    - .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-bloque}:${POSTGRES_PASSWORD:-bloque_secret}@db:5432/${POSTGRES_DB:-bloque_hub}
+      APP_DATABASE_URL: postgresql://bloque_app:bloque_app_secret@db:5432/${POSTGRES_DB:-bloque_hub}
+      CELERY_BROKER_URL: redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_started
+    networks:
+    - app-network
+  frontend:
+    build:
+      context: ./src/frontend
+      no_cache: true
+      dockerfile: ../../infra/docker/Dockerfile.frontend
+    container_name: bloque-hub-frontend
+    env_file:
+    - .env
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+    - app-network
+    expose:
+    - '3000'
+    healthcheck:
+      test:
+      - CMD
+      - node
+      - -e
+      - 'require(''http'').get(''http://127.0.0.1:3000/'', (r) => process.exit(r.statusCode
+        === 200 ? 0 : 1)).on(''error'', () => process.exit(1))'
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+  nginx:
+    image: nginx:alpine
+    container_name: bloque-hub-nginx
+    ports:
+    - 80:80
+    volumes:
+    - ./infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+    networks:
+    - app-network
+volumes:
+  dbdata: null
+  backenddata: null
+networks:
+  app-network:
+    driver: bridge

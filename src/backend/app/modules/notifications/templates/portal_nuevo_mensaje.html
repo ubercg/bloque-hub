@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Nuevo mensaje en el Portal — BLOQUE</title>
+</head>
+<body>
+    <p>Hola {{ recipient_name }},</p>
+    <p>Tienes un nuevo mensaje en el Portal del Cliente sobre tu reserva.</p>
+    {% if link_portal %}
+    <p><a href="{{ link_portal }}">Ver mensaje en el Portal</a></p>
+    {% endif %}
+    <p>— Equipo BLOQUE</p>
+</body>
+</html>
