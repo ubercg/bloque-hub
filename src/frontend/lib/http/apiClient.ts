@@ -4,8 +4,18 @@
 
 import axios from 'axios';
 
+/**
+ * Base URL del backend en el navegador (mismo origen que la app).
+ * - Con nginx solo de BLOQUE Hub: suele ser `/api`.
+ * - Tras proxy con prefijo (ej. taskflow en `/bloque`): `/bloque/api`.
+ * Definir `NEXT_PUBLIC_API_URL` en `.env` antes de `docker compose build frontend`
+ * (se inyecta en tiempo de build).
+ */
+const defaultApiBase =
+  process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, '') || '/api';
+
 const apiClient = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost/api',
+  baseURL: defaultApiBase,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -44,7 +54,8 @@ apiClient.interceptors.response.use(
           return Promise.reject(error);
         }
         localStorage.removeItem('auth_token');
-        window.location.href = '/login';
+        const prefix = process.env.NEXT_PUBLIC_BASE_PATH || '';
+        window.location.href = `${prefix}/login`;
       }
     }
     return Promise.reject(error);

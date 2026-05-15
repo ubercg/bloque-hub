@@ -103,6 +103,8 @@ services:
       context: ./src/frontend
       no_cache: true
       dockerfile: ../../infra/docker/Dockerfile.frontend
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-/api}
     container_name: bloque-hub-frontend
     env_file:
     - .env
