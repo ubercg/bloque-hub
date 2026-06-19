@@ -13,7 +13,9 @@ from app.modules.identity.schemas import (
     TenantCreate,
     TenantRead,
     TenantUpdate,
+    UserCreate,
     UserRead,
+    UserUpdate,
 )
 from app.modules.identity import services
 
@@ -181,3 +183,55 @@ def get_user(
     if user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
     return user
+
+
+@router.post("/users", response_model=UserRead, status_code=status.HTTP_201_CREATED)
+def create_user_endpoint(
+    user_data: UserCreate,
+    db: Session = Depends(get_db),
+    _: tuple[UUID, str | None] = Depends(require_tenant),
+    __: None = Depends(require_superadmin),
+):
+    """Create a new user. Only SUPERADMIN. Email must be globally unique."""
+    try:
+        user = services.create_user(db=db, user_data=user_data)
+        return user
+    except services.DuplicateEmailError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
+
+
+@router.patch("/users/{user_id}", response_model=UserRead)
+def update_user_endpoint(
+    user_id: UUID,
+    user_data: UserUpdate,
+    db: Session = Depends(get_db),
+    _: tuple[UUID, str | None] = Depends(require_tenant),
+    __: None = Depends(require_superadmin),
+):
+    """Update an existing user. Only SUPERADMIN."""
+    try:
+        updated_user = services.update_user(db=db, user_id=user_id, user_data=user_data)
+        return updated_user
+    except services.UserNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except services.DuplicateEmailError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
+    except services.LastSuperadminLockoutError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
+
+
+@router.delete("/users/{user_id}", response_model=UserRead)
+def delete_user_endpoint(
+    user_id: UUID,
+    db: Session = Depends(get_db),
+    _: tuple[UUID, str | None] = Depends(require_tenant),
+    __: None = Depends(require_superadmin),
+):
+    """Deactivate a user (soft delete). Only SUPERADMIN. Applies last SUPERADMIN lockout protection."""
+    try:
+        deleted_user = services.delete_user(db=db, user_id=user_id)
+        return deleted_user
+    except services.UserNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except services.LastSuperadminLockoutError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))

@@ -28,7 +28,7 @@ from app.main import app
 from app.modules.identity.models import Tenant, User, UserRole
 
 # Fixed bcrypt hash for "password" (no passlib runtime in tests to avoid bcrypt backend issues)
-TEST_PASSWORD_HASH = "$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/X4.VXg7H8nJ.9KQOu"
+TEST_PASSWORD_HASH = "$2b$12$2VxkZdj2onpxbNihro/2IuXvmJewH4UzwyjKd9qmaf2IZ.4Go9fB6"
 
 
 @pytest.fixture
@@ -68,7 +68,7 @@ def user_a(db_super: Session, tenant_a: Tenant) -> User:
     uid = uuid.uuid4().hex[:8]
     u = User(
         tenant_id=tenant_a.id,
-        email=f"user_a_{uid}@tenant-a.test",
+        email=f"user_a_{uid}@tenant-a.com",
         hashed_password=TEST_PASSWORD_HASH,
         full_name="User A",
         role=UserRole.CUSTOMER,
@@ -84,7 +84,7 @@ def user_b(db_super: Session, tenant_b: Tenant) -> User:
     uid = uuid.uuid4().hex[:8]
     u = User(
         tenant_id=tenant_b.id,
-        email=f"user_b_{uid}@tenant-b.test",
+        email=f"user_b_{uid}@tenant-b.com",
         hashed_password=TEST_PASSWORD_HASH,
         full_name="User B",
         role=UserRole.COMMERCIAL,
@@ -101,7 +101,7 @@ def user_commercial_a(db_super: Session, tenant_a: Tenant) -> User:
     uid = uuid.uuid4().hex[:8]
     u = User(
         tenant_id=tenant_a.id,
-        email=f"commercial_a_{uid}@tenant-a.test",
+        email=f"commercial_a_{uid}@tenant-a.com",
         hashed_password=TEST_PASSWORD_HASH,
         full_name="Commercial A",
         role=UserRole.COMMERCIAL,
@@ -142,7 +142,7 @@ def user_operations_a(db_super: Session, tenant_a: Tenant) -> User:
     uid = uuid.uuid4().hex[:8]
     u = User(
         tenant_id=tenant_a.id,
-        email=f"ops_a_{uid}@tenant-a.test",
+        email=f"ops_a_{uid}@tenant-a.com",
         hashed_password=TEST_PASSWORD_HASH,
         full_name="Operations A",
         role=UserRole.OPERATIONS,
@@ -164,7 +164,7 @@ def user_finance_a(db_super: Session, tenant_a: Tenant) -> User:
     uid = uuid.uuid4().hex[:8]
     u = User(
         tenant_id=tenant_a.id,
-        email=f"finance_a_{uid}@tenant-a.test",
+        email=f"finance_a_{uid}@tenant-a.com",
         hashed_password=TEST_PASSWORD_HASH,
         full_name="Finance A",
         role=UserRole.FINANCE,
@@ -186,7 +186,7 @@ def user_superadmin_a(db_super: Session, tenant_a: Tenant) -> User:
     uid = uuid.uuid4().hex[:8]
     u = User(
         tenant_id=tenant_a.id,
-        email=f"superadmin_a_{uid}@tenant-a.test",
+        email=f"superadmin_a_{uid}@tenant-a.com",
         hashed_password=TEST_PASSWORD_HASH,
         full_name="SuperAdmin A",
         role=UserRole.SUPERADMIN,
@@ -208,7 +208,7 @@ def user_customer2_a(db_super: Session, tenant_a: Tenant) -> User:
     uid = uuid.uuid4().hex[:8]
     u = User(
         tenant_id=tenant_a.id,
-        email=f"customer2_a_{uid}@tenant-a.test",
+        email=f"customer2_a_{uid}@tenant-a.com",
         hashed_password=TEST_PASSWORD_HASH,
         full_name="Customer Two A",
         role=UserRole.CUSTOMER,

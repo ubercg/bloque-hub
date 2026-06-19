@@ -95,3 +95,5 @@ src/backend/build/
 # ---------------------------------------------------------------------------
 docker-compose.prod.yml
 docker-compose.local.yml
+
+.atl/.skill-registry.cache.json

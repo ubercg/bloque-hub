@@ -1,0 +1,25 @@
+project: bloque_hub
+mode: openspec
+strict_tdd: true
+stack:
+  backend: python
+  frontend: nextjs
+testing:
+  backend:
+    runner: pytest
+    unit: true
+    integration: true
+    e2e: false
+    coverage_tool: pytest-cov
+    linter: flake8 # or pylint, needs verification
+    type_checker: mypy # needs verification
+    formatter: black # needs verification
+  frontend:
+    runner: playwright
+    unit: true # assumed, needs verification of actual runner like jest/vitest
+    integration: true # assumed, could be through playwright or component tests
+    e2e: true
+    coverage_tool: playwright # and istanbul/v8 for unit/component
+    linter: eslint
+    type_checker: typescript
+    formatter: prettier # needs verification
