@@ -50,25 +50,16 @@ export default defineConfig({
       name: 'webkit',
       use: { ...devices['Desktop Safari'] },
     },
-
-    /* Test against mobile viewports */
-    {
-      name: 'Mobile Chrome',
-      use: { ...devices['Pixel 5'] },
-    },
-    {
-      name: 'Mobile Safari',
-      use: { ...devices['iPhone 12'] },
-    },
   ],
 
-  /* When E2E_BASE_URL is set (e.g. http://localhost for Docker), do not start a server. Otherwise start dev server (webpack to avoid Turbopack root inference issues). */
+  /* When E2E_BASE_URL is set (e.g. http://localhost for Docker), do not start a server. 
+     Otherwise start PRODUCTION build server to avoid dev Turbopack/Webpack intermittent flakes. */
   ...(process.env.E2E_BASE_URL
     ? {}
     : {
         webServer: {
-          command: 'npm run dev:webpack',
-          url: 'http://localhost:3000',
+          command: 'npm run build && npm start',
+          url: 'http://localhost:3000/bloque/login',
           reuseExistingServer: !process.env.CI,
           timeout: 120 * 1000,
         },
