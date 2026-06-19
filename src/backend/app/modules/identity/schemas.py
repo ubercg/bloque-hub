@@ -58,6 +58,15 @@ class UserCreate(BaseModel):
     role: UserRole = UserRole.CUSTOMER
 
 
+class UserUpdate(BaseModel):
+    tenant_id: UUID | None = None
+    email: EmailStr | None = None
+    full_name: str | None = Field(None, min_length=1, max_length=255)
+    role: UserRole | None = None
+    is_active: bool | None = None
+    password: str | None = Field(None, min_length=8)
+
+
 class UserRead(BaseModel):
     id: UUID
     tenant_id: UUID
