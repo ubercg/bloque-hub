@@ -4,6 +4,18 @@ import type { NextRequest } from 'next/server';
 import { isStaffRole } from '@/features/auth/server/session';
 import { validateAuthFromNextRequest } from '@/features/auth/server/validateRequest';
 
+const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
+
+/**
+ * Build a redirect URL that includes the configured basePath.
+ * Next.js middleware does not auto-apply basePath to URLs built from request.url,
+ * so without this a redirect to '/login' resolves to '/login' (404) instead of
+ * '/bloque/login'. request.nextUrl.pathname already has basePath stripped.
+ */
+function redirectUrl(path: string, request: NextRequest): URL {
+  return new URL(`${BASE_PATH}${path}`, request.url);
+}
+
 /**
  * Auth middleware: orquestación; validación vía validateAuthFromNextRequest → AuthContext.
  */
@@ -19,13 +31,13 @@ export function authMiddleware(request: NextRequest) {
   if (!ctx.isValid) {
     if (ctx.reason === 'missing_token') {
       if (!isAuthPage && !isPublicPage) {
-        const loginUrl = new URL('/login', request.url);
+        const loginUrl = redirectUrl('/login', request);
         loginUrl.searchParams.set('redirect', request.nextUrl.pathname);
         return NextResponse.redirect(loginUrl);
       }
       return NextResponse.next();
     }
-    const response = NextResponse.redirect(new URL('/login', request.url));
+    const response = NextResponse.redirect(redirectUrl('/login', request));
     response.cookies.delete('auth_token');
     return response;
   }
@@ -35,11 +47,11 @@ export function authMiddleware(request: NextRequest) {
 
   if (isAuthPage) {
     const target = staff ? '/admin/dashboard' : '/my-events';
-    return NextResponse.redirect(new URL(target, request.url));
+    return NextResponse.redirect(redirectUrl(target, request));
   }
 
   if (role === 'CUSTOMER' && request.nextUrl.pathname.startsWith('/admin')) {
-    return NextResponse.redirect(new URL('/my-events', request.url));
+    return NextResponse.redirect(redirectUrl('/my-events', request));
   }
 
   return NextResponse.next();
