@@ -1,42 +1,31 @@
-import { test, expect, Page, BrowserContext } from '@playwright/test';
+import { test, expect } from '@playwright/test';
 
-const BASE_PATH = '/bloque'; 
+import { COMMERCIAL_STATE } from '../auth-paths';
+
+const BASE_PATH = '/bloque';
 const ADMIN_EMAIL = 'admin@test.com';
-const ADMIN_PASSWORD = 'password';
-const COMMERCIAL_EMAIL = 'commercial@test.com';
-const COMMERCIAL_PASSWORD = 'password';
 
-async function login(page: Page, context: BrowserContext, email: string, password: string) {
-  await context.clearCookies();
-  await page.goto(`${BASE_PATH}/login`);
-  await page.waitForTimeout(2000); // Wait for React hydration
-  await page.getByLabel('Correo electrónico').fill(email);
-  await page.getByLabel('Contraseña').fill(password);
-  await page.getByRole('button', { name: 'Iniciar sesión' }).click();
-  await page.waitForURL(url => url.pathname.includes('/admin') || url.pathname.includes('/my-events'), { timeout: 15000 });
-}
-
+/**
+ * Admin tests reuse the SUPERADMIN storageState configured on the project
+ * (see playwright.config.ts), so no per-test UI login is needed.
+ */
 test.describe('Admin Users Management (Superadmin)', () => {
-  test.beforeEach(async ({ page, context }) => {
-    await login(page, context, ADMIN_EMAIL, ADMIN_PASSWORD);
-  });
-
   test('should display a list of users and navigate to create', async ({ page }) => {
     await page.goto(`${BASE_PATH}/admin/users`);
     await expect(page.getByRole('heading', { name: 'Administración de Usuarios' })).toBeVisible({ timeout: 15000 });
-    
+
     // Check if there's at least one user in the list (the admin themselves)
     await expect(page.getByRole('cell', { name: ADMIN_EMAIL })).toBeVisible({ timeout: 15000 });
 
     await page.getByRole('link', { name: 'Nuevo Usuario' }).click();
-    await expect(page).toHaveURL(url => url.pathname.includes('/admin/users/create'));
+    await expect(page).toHaveURL((url) => url.pathname.includes('/admin/users/create'));
   });
 
-  test('should allow creating a new user and deleting it', async ({ page, context }) => {
+  test('should allow creating a new user and deleting it', async ({ page }) => {
     await page.goto(`${BASE_PATH}/admin/users/create`);
 
     const newEmail = `e2e_test_${Date.now()}@test.com`;
-    
+
     // Extract tenantId from localStorage where zustand auth store is saved
     const authStorageStr = await page.evaluate(() => localStorage.getItem('auth-storage'));
     const tenantId = authStorageStr ? JSON.parse(authStorageStr).state.tenantId : '';
@@ -46,27 +35,28 @@ test.describe('Admin Users Management (Superadmin)', () => {
     await page.getByLabel('Email', { exact: true }).fill(newEmail);
     await page.getByLabel('Contraseña', { exact: true }).fill('password123');
     await page.locator('select#role').selectOption('CUSTOMER');
-    
+
     await page.getByRole('button', { name: 'Crear Usuario' }).click();
 
-    // Verify it navigates back and the user is created
-    await expect(page).toHaveURL(url => url.pathname.endsWith('/admin/users'));
-    await expect(page.getByRole('cell', { name: newEmail })).toBeVisible();
+    // Verify it navigates back and the user is created. Generous timeouts absorb
+    // dev-mode (Turbopack) recompile latency after each mutation/navigation.
+    await expect(page).toHaveURL((url) => url.pathname.endsWith('/admin/users'), { timeout: 15000 });
+    await expect(page.getByRole('cell', { name: newEmail })).toBeVisible({ timeout: 15000 });
 
     // Now edit and deactivate it
     await page.getByRole('row', { name: newEmail }).getByRole('link', { name: 'Editar' }).click();
-    await expect(page.getByRole('heading', { name: 'Editar Usuario: E2E Test User' })).toBeVisible();
-    
+    await expect(page.getByRole('heading', { name: 'Editar Usuario: E2E Test User' })).toBeVisible({ timeout: 15000 });
+
     await page.getByRole('button', { name: 'Desactivar Usuario' }).click();
-    await expect(page).toHaveURL(url => url.pathname.endsWith('/admin/users'));
-    await expect(page.getByRole('row', { name: newEmail }).getByText('Inactivo')).toBeVisible();
+    await expect(page).toHaveURL((url) => url.pathname.endsWith('/admin/users'), { timeout: 15000 });
+    await expect(page.getByRole('row', { name: newEmail }).getByText('Inactivo')).toBeVisible({ timeout: 15000 });
 
     // Reactivate
     await page.getByRole('row', { name: newEmail }).getByRole('link', { name: 'Editar' }).click();
-    await expect(page.getByRole('heading', { name: 'Editar Usuario: E2E Test User' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Editar Usuario: E2E Test User' })).toBeVisible({ timeout: 15000 });
     await page.getByRole('button', { name: 'Activar Usuario' }).click();
-    await expect(page).toHaveURL(url => url.pathname.endsWith('/admin/users'));
-    await expect(page.getByRole('row', { name: newEmail }).getByText('Activo')).toBeVisible();
+    await expect(page).toHaveURL((url) => url.pathname.endsWith('/admin/users'), { timeout: 15000 });
+    await expect(page.getByRole('row', { name: newEmail }).getByText('Activo')).toBeVisible({ timeout: 15000 });
   });
 
   test('should block duplicate email on creation', async ({ page }) => {
@@ -80,7 +70,7 @@ test.describe('Admin Users Management (Superadmin)', () => {
     await page.getByLabel('Email', { exact: true }).fill(ADMIN_EMAIL); // Use the existing admin email
     await page.getByLabel('Contraseña', { exact: true }).fill('password123');
     await page.locator('select#role').selectOption('CUSTOMER');
-    
+
     await page.getByRole('button', { name: 'Crear Usuario' }).click();
 
     await expect(page.getByText('Email already registered globally')).toBeVisible();
@@ -97,13 +87,16 @@ test.describe('Admin Users Management (Superadmin)', () => {
   });
 });
 
+/**
+ * COMMERCIAL is staff but not SUPERADMIN: it reaches the admin shell but the
+ * RoleGuard redirects it to /admin/403. Uses the commercial storageState.
+ */
 test.describe('Admin Users Management (Non-Superadmin - 403)', () => {
-  test('COMMERCIAL role should be redirected to 403 when accessing admin users', async ({ page, context }) => {
-    await login(page, context, COMMERCIAL_EMAIL, COMMERCIAL_PASSWORD);
-    await expect(page).toHaveURL(url => url.pathname.includes('/my-events') || url.pathname.includes('/catalog') || url.pathname.includes('/admin/dashboard'));
+  test.use({ storageState: COMMERCIAL_STATE });
 
-    await page.goto(`${BASE_PATH}/admin/users`); 
-    await expect(page).toHaveURL(url => url.pathname.includes('/admin/403'));
+  test('COMMERCIAL role should be redirected to 403 when accessing admin users', async ({ page }) => {
+    await page.goto(`${BASE_PATH}/admin/users`);
+    await expect(page).toHaveURL((url) => url.pathname.includes('/admin/403'));
     await expect(page.getByRole('heading', { name: 'Acceso denegado' })).toBeVisible();
   });
 });

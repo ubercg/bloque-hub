@@ -10,6 +10,10 @@ export default defineConfig({
   /* Run tests in files in parallel */
   fullyParallel: true,
 
+  /* Per-test timeout. Generous to absorb dev-mode (Turbopack) compile latency. */
+  timeout: 60 * 1000,
+  expect: { timeout: 15 * 1000 },
+
   /* Fail the build on CI if you accidentally left test.only in the source code */
   forbidOnly: !!process.env.CI,
 
@@ -34,21 +38,31 @@ export default defineConfig({
     screenshot: 'only-on-failure',
   },
 
-  /* Configure projects for major browsers */
+  /* Configure projects for major browsers.
+     The `setup` project authenticates once per role and saves storageState;
+     browser projects reuse it (no per-test UI login → no concurrent-login race). */
   projects: [
+    { name: 'setup', testMatch: /.*\.setup\.ts/ },
+
     {
       name: 'chromium',
-      use: { ...devices['Desktop Chrome'] },
+      use: { ...devices['Desktop Chrome'], storageState: 'playwright/.auth/admin.json' },
+      dependencies: ['setup'],
+      testIgnore: /.*\.setup\.ts/,
     },
 
     {
       name: 'firefox',
-      use: { ...devices['Desktop Firefox'] },
+      use: { ...devices['Desktop Firefox'], storageState: 'playwright/.auth/admin.json' },
+      dependencies: ['setup'],
+      testIgnore: /.*\.setup\.ts/,
     },
 
     {
       name: 'webkit',
-      use: { ...devices['Desktop Safari'] },
+      use: { ...devices['Desktop Safari'], storageState: 'playwright/.auth/admin.json' },
+      dependencies: ['setup'],
+      testIgnore: /.*\.setup\.ts/,
     },
   ],
 

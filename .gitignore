@@ -83,6 +83,7 @@ Thumbs.db
 # ---------------------------------------------------------------------------
 src/frontend/test-results/
 src/frontend/playwright-report/
+src/frontend/playwright/.auth/
 
 # ---------------------------------------------------------------------------
 # Build artifacts (backend Dockerfile uses COPY . .)
