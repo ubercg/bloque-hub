@@ -24,7 +24,7 @@ services:
         - CMD
         - node
         - -e
-        - "require('http').get('http://127.0.0.1:3000/', (r) => process.exit(r.statusCode >= 200 && r.statusCode < 400 ? 0 : 1)).on('error', () => process.exit(1))"
+        - "require('http').get('http://127.0.0.1:3000/bloque/login', (r) => process.exit(r.statusCode >= 200 && r.statusCode < 400 ? 0 : 1)).on('error', () => process.exit(1))"
       interval: 10s
       timeout: 5s
       retries: 5
@@ -32,6 +32,12 @@ services:
     volumes:
       - ./src/frontend:/app
       - frontend_node_modules:/app/node_modules
+
+  nginx:
+    # Publish the reverse proxy to the host so local tooling (E2E from host, browser)
+    # can reach the app at http://localhost/bloque (base compose leaves ports unset).
+    ports:
+      - "80:80"
 
 volumes:
   frontend_node_modules:
