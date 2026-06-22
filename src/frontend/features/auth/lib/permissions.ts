@@ -19,7 +19,7 @@ const ROLE_MODULE_MAP: Record<StaffRole, readonly string[]> = {
   COMMERCIAL: ['crm', 'operations', 'occupancy'],
   OPERATIONS: ['operations', 'occupancy'],
   FINANCE: ['finance', 'operations', 'occupancy', 'pricing', 'discounts'],
-  SUPERADMIN: ['crm', 'operations', 'finance', 'occupancy', 'pricing', 'discounts', 'settings', 'spaces'],
+  SUPERADMIN: ['users', 'crm', 'operations', 'finance', 'occupancy', 'pricing', 'discounts', 'settings', 'spaces'],
 };
 
 /**
@@ -42,6 +42,7 @@ export function canAccessModule(role: string | undefined, module: string): boole
  * Roles permitidos por ruta de admin (path segment después de /admin).
  */
 export const ADMIN_ROUTE_ROLES: Record<string, readonly string[]> = {
+  users: CAN_ACCESS_SUPERADMIN,
   crm: CAN_ACCESS_CRM,
   /** Control Center: operaciones + comercial/finanzas (pase de caja, expediente, timeline). */
   operations: ['OPERATIONS', 'COMMERCIAL', 'FINANCE', 'SUPERADMIN'] as const,
