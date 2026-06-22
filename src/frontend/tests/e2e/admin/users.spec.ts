@@ -10,8 +10,11 @@ const ADMIN_EMAIL = 'admin@test.com';
  * (see playwright.config.ts), so no per-test UI login is needed.
  */
 test.describe('Admin Users Management (Superadmin)', () => {
-  test('should display a list of users and navigate to create', async ({ page }) => {
-    await page.goto(`${BASE_PATH}/admin/users`);
+  test('should reach user management from the sidebar and list users', async ({ page }) => {
+    // Reach the section via the sidebar "Usuarios" link (not a direct URL).
+    await page.goto(`${BASE_PATH}/admin/dashboard`);
+    await page.getByRole('link', { name: 'Usuarios' }).click();
+    await expect(page).toHaveURL((url) => url.pathname.endsWith('/admin/users'), { timeout: 15000 });
     await expect(page.getByRole('heading', { name: 'Administración de Usuarios' })).toBeVisible({ timeout: 15000 });
 
     // Check if there's at least one user in the list (the admin themselves)

@@ -10,6 +10,7 @@ import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard,
   Users,
+  UserCog,
   Calendar,
   Wallet,
   Building2,
@@ -25,6 +26,7 @@ import { useAuthStore } from '../store/auth.store';
 import { useStaffRoleHydration } from '../hooks/useStaffRoleHydration';
 
 const MODULE_LINKS: { slug: string; href: string; label: string; icon: React.ElementType }[] = [
+  { slug: 'users', href: '/admin/users', label: 'Usuarios', icon: UserCog },
   { slug: 'crm', href: '/admin/crm', label: 'CRM', icon: Users },
   { slug: 'operations', href: '/admin/operations', label: 'Control Center', icon: Calendar },
   { slug: 'finance', href: '/admin/finance', label: 'Finanzas', icon: Wallet },

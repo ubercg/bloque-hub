@@ -28,8 +28,9 @@ async function uiLogin(
     (url) => url.pathname.includes('/admin') || url.pathname.includes('/my-events'),
     { timeout: 15000 },
   );
-  // Let role hydration (GET /me) settle so the saved state includes the role.
-  await page.waitForLoadState('networkidle');
+  // Small settle for the auth cookie/store to persist before saving state.
+  // (Avoid networkidle: pages with persistent connections never reach it.)
+  await page.waitForTimeout(1000);
 }
 
 setup('authenticate as superadmin', async ({ page }) => {
