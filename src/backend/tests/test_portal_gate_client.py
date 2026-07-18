@@ -216,3 +216,40 @@ class TestValidateFolioRetryBehavior:
             validate_folio(VALID_FOLIO)
 
         assert called["count"] == settings.PORTAL_RETRY_ATTEMPTS
+
+
+class TestPortalRetryConfigClamping:
+    """PR#9 FIX 7 (SUGGESTION): a misconfigured PORTAL_RETRY_ATTEMPTS (e.g. 0
+    or 500) must not disable retries entirely or block a request for minutes.
+    Attempts are clamped to [1, 5] and backoff is capped."""
+
+    def test_attempts_above_max_are_clamped(self, monkeypatch):
+        from app.modules.portal_gate import client as client_module
+
+        monkeypatch.setattr(settings, "PORTAL_RETRY_ATTEMPTS", 500)
+        assert client_module._resolved_retry_attempts() <= 5
+
+    def test_attempts_below_min_are_clamped(self, monkeypatch):
+        from app.modules.portal_gate import client as client_module
+
+        monkeypatch.setattr(settings, "PORTAL_RETRY_ATTEMPTS", 0)
+        assert client_module._resolved_retry_attempts() >= 1
+
+    def test_backoff_is_capped_across_many_attempts(self, monkeypatch):
+        from app.modules.portal_gate import client as client_module
+
+        sleep_calls = []
+        called = {"count": 0}
+        monkeypatch.setattr(settings, "PORTAL_RETRY_ATTEMPTS", 500)
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            called["count"] += 1
+            return httpx.Response(503, json={"detail": "service unavailable"})
+
+        _patch_client(monkeypatch, handler, sleep_calls=sleep_calls)
+
+        with pytest.raises(PortalUnavailableError):
+            validate_folio(VALID_FOLIO)
+
+        assert sleep_calls, "expected at least one retry backoff"
+        assert all(delay <= 2.0 for delay in sleep_calls)

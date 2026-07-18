@@ -29,6 +29,21 @@ FOLIO_PATTERN = re.compile(r"^BCE-\d{8}-\d{6}-\d{4}$")
 
 _RETRYABLE_STATUS_THRESHOLD = 500
 
+# PR#9 FIX 7: clamp a misconfigured PORTAL_RETRY_ATTEMPTS into a sane range —
+# 0 (or negative) would disable retries silently, and a very large value
+# could block a request for minutes. Backoff itself is also capped below.
+_MIN_RETRY_ATTEMPTS = 1
+_MAX_RETRY_ATTEMPTS = 5
+_MAX_BACKOFF_SECONDS = 2.0
+
+
+def _resolved_retry_attempts() -> int:
+    return max(_MIN_RETRY_ATTEMPTS, min(settings.PORTAL_RETRY_ATTEMPTS, _MAX_RETRY_ATTEMPTS))
+
+
+def _backoff_seconds(attempt: int) -> float:
+    return min(0.2 * 2**attempt, _MAX_BACKOFF_SECONDS)
+
 
 class PortalFolioStatus(str, enum.Enum):
     ELIGIBLE = "eligible"
@@ -77,7 +92,7 @@ def validate_folio(folio: str) -> PortalFolioStatus:
 
     url = f"{settings.PORTAL_API_BASE_URL.rstrip('/')}/api/public/space-event-requests/access/{folio}"
     headers = _build_headers()
-    attempts = settings.PORTAL_RETRY_ATTEMPTS
+    attempts = _resolved_retry_attempts()
 
     last_error: Exception | None = None
     for attempt in range(attempts):
@@ -91,7 +106,7 @@ def validate_folio(folio: str) -> PortalFolioStatus:
                 folio, attempt + 1, attempts, exc,
             )
             if attempt < attempts - 1:
-                time.sleep(0.2 * 2**attempt)
+                time.sleep(_backoff_seconds(attempt))
                 continue
             logger.warning(
                 "Portal gate unreachable for folio %s after %d attempts", folio, attempts
@@ -113,7 +128,7 @@ def validate_folio(folio: str) -> PortalFolioStatus:
                 response.status_code, folio, attempt + 1, attempts,
             )
             if attempt < attempts - 1:
-                time.sleep(0.2 * 2**attempt)
+                time.sleep(_backoff_seconds(attempt))
                 continue
             logger.warning(
                 "Portal gate unavailable for folio %s after %d attempts "
