@@ -82,6 +82,9 @@ class Settings(BaseSettings):
     PORTAL_API_KEY: str | None = None  # optional; header added only if set
     # Storage for public wizard documents (quote_wizard_documents, Option B); filesystem
     WIZARD_DOCUMENTS_STORAGE_PATH: str = "data/wizard_documents"
+    # Legal copy URLs (placeholders until legal supplies canonical docs) — RN-014 checkboxes
+    LEGAL_REGLAMENTO_URL: str = "https://bloque.example/reglamento"
+    LEGAL_AVISO_PRIVACIDAD_URL: str = "https://bloque.example/aviso-privacidad"
     # Datos SPEI para Pase de Caja (placeholder si no hay integración)
     SPEI_CLABE: str = ""
     SPEI_REFERENCE_PREFIX: str = "BLOQUE"
