@@ -259,6 +259,26 @@ def _cleanup_written_files(paths: list[Path]) -> None:
             pass
 
 
+_DUPLICATE_FOLIO_CONSTRAINT = "uq_quotes_portal_folio"
+
+
+def _is_duplicate_folio_integrity_error(exc: IntegrityError) -> bool:
+    """PR#9 FIX 6: only classify an `IntegrityError` as DUPLICATE_FOLIO when
+    it actually names the `portal_folio` unique constraint. A broad
+    `except IntegrityError -> 409 DUPLICATE_FOLIO` mislabels any other
+    constraint violation (e.g. a future FK/NOT NULL constraint) as a
+    duplicate-folio replay, which is both wrong for the client and hides a
+    real bug from monitoring."""
+    orig = getattr(exc, "orig", None)
+    diag = getattr(orig, "diag", None)
+    constraint_name = getattr(diag, "constraint_name", None)
+    if constraint_name:
+        return constraint_name == _DUPLICATE_FOLIO_CONSTRAINT
+    # Fallback for drivers/backends without `.diag` (e.g. SQLite in unit
+    # tests) — inspect the stringified error for the constraint name.
+    return _DUPLICATE_FOLIO_CONSTRAINT in str(exc)
+
+
 @router.post(
     "/public/quote-requests",
     response_model=QuoteRequestSubmitResponse,
@@ -343,98 +363,113 @@ def submit_quote_request(
     written_paths: list[Path] = []
     quote_id: UUID
     quote_total: float
+    # PR#9 FIX 3: tracks whether the transaction actually committed. The
+    # `finally` block below cleans up `written_paths` whenever it did NOT —
+    # regardless of WHICH exception type caused that, not just the 4 mapped
+    # ones — so no failure mode (known or unexpected) can leave orphaned
+    # files on disk with no DB row referencing them.
+    committed = False
 
     try:
-        with get_db_context(tenant_id=str(tenant_id), role=None) as db:
-            try:
-                group = check_group_availability(
-                    [
-                        {
-                            "espacio_id": item.space_id,
-                            "fecha": item.fecha,
-                            "hora_inicio": item.hora_inicio,
-                            "hora_fin": item.hora_fin,
-                        }
-                        for item in parsed.items
-                    ],
-                    db=db,
-                    role=None,
-                )
-                if not group["all_available"]:
-                    raise SlotNotAvailableError(group["conflicts"])
-
-                documents: list[WizardDocumentMeta] = []
-                storage_dir = _wizard_documents_storage_dir()
-                for filename, mime, content in validated_files:
-                    doc_id = uuid4()
-                    ext = _ext_for_mime(mime)
-                    storage_key = f"{tenant_id}/{doc_id}{ext}"
-                    full_path = storage_dir / storage_key
-                    full_path.parent.mkdir(parents=True, exist_ok=True)
-                    full_path.write_bytes(content)
-                    written_paths.append(full_path)
-                    documents.append(
-                        WizardDocumentMeta(
-                            storage_key=storage_key,
-                            mime_type=mime,
-                            size_bytes=len(content),
-                            original_filename=filename,
-                        )
+        try:
+            with get_db_context(tenant_id=str(tenant_id), role=None) as db:
+                try:
+                    group = check_group_availability(
+                        [
+                            {
+                                "espacio_id": item.space_id,
+                                "fecha": item.fecha,
+                                "hora_inicio": item.hora_inicio,
+                                "hora_fin": item.hora_fin,
+                            }
+                            for item in parsed.items
+                        ],
+                        db=db,
+                        role=None,
                     )
+                    if not group["all_available"]:
+                        raise SlotNotAvailableError(group["conflicts"])
 
-                quote = create_public_quote_request(
-                    tenant_id, parsed, db, documents=documents
-                )
-                db.commit()
-                # Read scalar values BEFORE the session closes (get_db_context
-                # closes on exit) to avoid a DetachedInstanceError on return.
-                quote_id = quote.id
-                quote_total = float(quote.total)
-            except (SlotNotAvailableError, IntegrityError, NoPricingRuleError, ValueError):
-                db.rollback()
+                    documents: list[WizardDocumentMeta] = []
+                    storage_dir = _wizard_documents_storage_dir()
+                    for filename, mime, content in validated_files:
+                        doc_id = uuid4()
+                        ext = _ext_for_mime(mime)
+                        storage_key = f"{tenant_id}/{doc_id}{ext}"
+                        full_path = storage_dir / storage_key
+                        full_path.parent.mkdir(parents=True, exist_ok=True)
+                        full_path.write_bytes(content)
+                        written_paths.append(full_path)
+                        documents.append(
+                            WizardDocumentMeta(
+                                storage_key=storage_key,
+                                mime_type=mime,
+                                size_bytes=len(content),
+                                original_filename=filename,
+                            )
+                        )
+
+                    quote = create_public_quote_request(
+                        tenant_id, parsed, db, documents=documents
+                    )
+                    db.commit()
+                    committed = True
+                    # Read scalar values BEFORE the session closes
+                    # (get_db_context closes on exit) to avoid a
+                    # DetachedInstanceError on return.
+                    quote_id = quote.id
+                    quote_total = float(quote.total)
+                except Exception:
+                    db.rollback()
+                    raise
+        except SlotNotAvailableError as exc:
+            # `SlotNotAvailableError` is raised from two different call sites
+            # with different `args[0]` shapes: `check_group_availability`
+            # raises with a list of conflict dicts, but the authoritative
+            # `with_for_update()` lock in `apply_soft_hold_for_quote` raises
+            # with a plain STRING message (services.py). Normalize so the
+            # string-arg (lock) path still maps to a clean 409 instead of
+            # crashing on `.items()`.
+            raw_conflicts = (
+                exc.args[0]
+                if exc.args and isinstance(exc.args[0], list)
+                else []
+            )
+            conflicts = [
+                {
+                    key: (str(value) if isinstance(value, UUID) else value)
+                    for key, value in conflict.items()
+                }
+                for conflict in raw_conflicts
+            ]
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={"reason": "SLOT_UNAVAILABLE", "conflicts": conflicts},
+            )
+        except IntegrityError as exc:
+            # PR#9 FIX 6: only DUPLICATE_FOLIO when it's actually the
+            # `portal_folio` unique constraint — any other IntegrityError is
+            # a different bug and must not be mislabeled, so re-raise it as
+            # an unexpected 500.
+            if not _is_duplicate_folio_integrity_error(exc):
                 raise
-    except SlotNotAvailableError as exc:
-        _cleanup_written_files(written_paths)
-        # `SlotNotAvailableError` is raised from two different call sites with
-        # different `args[0]` shapes: `check_group_availability` raises with a
-        # list of conflict dicts, but the authoritative `with_for_update()`
-        # lock in `apply_soft_hold_for_quote` raises with a plain STRING
-        # message (services.py). Normalize so the string-arg (lock) path still
-        # maps to a clean 409 instead of crashing on `.items()`.
-        raw_conflicts = (
-            exc.args[0]
-            if exc.args and isinstance(exc.args[0], list)
-            else []
-        )
-        conflicts = [
-            {
-                key: (str(value) if isinstance(value, UUID) else value)
-                for key, value in conflict.items()
-            }
-            for conflict in raw_conflicts
-        ]
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={"reason": "SLOT_UNAVAILABLE", "conflicts": conflicts},
-        )
-    except IntegrityError:
-        _cleanup_written_files(written_paths)
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={"reason": "DUPLICATE_FOLIO"},
-        )
-    except NoPricingRuleError:
-        _cleanup_written_files(written_paths)
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail={"reason": "NO_PRICING_RULE"},
-        )
-    except ValueError as exc:
-        _cleanup_written_files(written_paths)
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail={"reason": "INVALID_REQUEST", "message": str(exc)},
-        )
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={"reason": "DUPLICATE_FOLIO"},
+            ) from exc
+        except NoPricingRuleError:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={"reason": "NO_PRICING_RULE"},
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={"reason": "INVALID_REQUEST", "message": str(exc)},
+            )
+    finally:
+        if not committed:
+            _cleanup_written_files(written_paths)
 
     # Best-effort confirmation email (RN-016, design.md §5). Placed AFTER
     # commit, in the endpoint (not the service), so a mail failure can never

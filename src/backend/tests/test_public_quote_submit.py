@@ -390,6 +390,48 @@ class TestSubmitAtomicityAndReplay:
 
 
 @pytest.mark.integration
+class TestSubmitIntegrityErrorClassification:
+    """PR#9 FIX 6 (WARNING): only an `IntegrityError` naming the
+    `uq_quotes_portal_folio` constraint should map to 409 DUPLICATE_FOLIO —
+    any other constraint violation must NOT be mislabeled as a duplicate-folio
+    replay (it should surface as an unexpected 500, not a wrong 409)."""
+
+    def test_unrelated_integrity_error_is_not_labeled_duplicate_folio(
+        self, client, monkeypatch, tenant_a, db_super
+    ):
+        from sqlalchemy.exc import IntegrityError
+
+        _set_default_tenant(monkeypatch, tenant_a.id)
+        _mock_eligible(monkeypatch)
+
+        space = _make_space(db_super, tenant_a.id, uuid4().hex[:8])
+        _make_pricing_rule(db_super, tenant_a.id, space.id)
+        day = date.today() + timedelta(days=114)
+        payload = _base_payload(items=[_item_dict(space.id, day)])
+
+        class _FakeDiag:
+            constraint_name = "some_other_unrelated_constraint"
+
+        class _FakeOrig(Exception):
+            diag = _FakeDiag()
+
+        def _raise_unrelated_integrity_error(*args, **kwargs):
+            raise IntegrityError(
+                "INSERT INTO quote_items ...", {}, _FakeOrig("not a folio conflict")
+            )
+
+        monkeypatch.setattr(
+            public_module, "create_public_quote_request", _raise_unrelated_integrity_error
+        )
+
+        with pytest.raises(IntegrityError):
+            _submit(client, payload)
+
+        with get_db_context(tenant_id=str(tenant_a.id), role=None) as db:
+            _no_rows_for(db, payload["correo_institucional"], payload["folio"])
+
+
+@pytest.mark.integration
 class TestSubmitServiciosApoyo:
     """servicios_apoyo is a FIXED closed enum (REQ-012 §4.5), NOT a catalog
     lookup — persisted verbatim on quote_wizard_details, not priced (PR#8)."""
@@ -525,6 +567,49 @@ class TestSubmitFieldLengthLimits:
         response = _submit(client, payload)
 
         assert response.status_code == 422, response.text
+        with get_db_context(tenant_id=str(tenant_a.id), role=None) as db:
+            _no_rows_for(db, payload["correo_institucional"], payload["folio"])
+
+
+@pytest.mark.integration
+class TestSubmitUnexpectedExceptionCleanup:
+    """PR#9 FIX 3 (CRITICAL): file bytes are written to disk BEFORE
+    `create_public_quote_request` is called and the transaction commits.
+    Cleanup previously only ran inside the 4 explicitly-caught exception
+    types — any OTHER unexpected exception left orphaned files on disk with
+    no DB row referencing them. Cleanup must run on ANY failure before
+    commit, regardless of exception type."""
+
+    def test_unexpected_exception_after_files_written_cleans_up_disk(
+        self, client, monkeypatch, tenant_a, db_super
+    ):
+        import pathlib
+
+        _set_default_tenant(monkeypatch, tenant_a.id)
+        _mock_eligible(monkeypatch)
+
+        space = _make_space(db_super, tenant_a.id, uuid4().hex[:8])
+        _make_pricing_rule(db_super, tenant_a.id, space.id)
+        day = date.today() + timedelta(days=113)
+        payload = _base_payload(items=[_item_dict(space.id, day)])
+
+        def _raise_unexpected(*args, **kwargs):
+            raise RuntimeError("unexpected failure after files were written")
+
+        monkeypatch.setattr(
+            public_module, "create_public_quote_request", _raise_unexpected
+        )
+
+        storage_dir = pathlib.Path(settings.WIZARD_DOCUMENTS_STORAGE_PATH)
+        files = [("files", ("acta.pdf", b"%PDF-1.4 fake pdf content", "application/pdf"))]
+
+        with pytest.raises(RuntimeError):
+            _submit(client, payload, files=files)
+
+        # No orphaned files should remain for this tenant after the crash.
+        tenant_dir = storage_dir / str(tenant_a.id)
+        leftover = list(tenant_dir.glob("*")) if tenant_dir.exists() else []
+        assert leftover == []
         with get_db_context(tenant_id=str(tenant_a.id), role=None) as db:
             _no_rows_for(db, payload["correo_institucional"], payload["folio"])
 
