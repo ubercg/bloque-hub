@@ -20,7 +20,7 @@ from sqlalchemy import (
     Time,
     func,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import ARRAY, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -107,6 +107,21 @@ class MontajeRequerido(str, enum.Enum):
     COCTEL = "Cóctel"
     PROTOCOLAR_FIRMA = "Protocolar para firma"
     SIN_MONTAJE = "Sin montaje"
+
+
+class ServicioApoyo(str, enum.Enum):
+    """Step 4 `servicios_apoyo` — FIXED closed multi-enum (REQ-012 §4.5), NOT a
+    dynamic catalog. Not priced (Quote.total = spaces only, PR#8 correction —
+    see design.md deviation note)."""
+
+    EQUIPO_AUDIOVISUAL = "Equipo audiovisual"
+    FOTOGRAFIA_OFICIAL = "Fotografía oficial"
+    TRANSMISION_EN_VIVO = "Transmisión en vivo"
+    COFFEE_BREAK = "Coffee break"
+    REGISTRO_DE_ASISTENTES = "Registro de asistentes"
+    TRADUCCION_SIMULTANEA = "Traducción simultánea"
+    ESTACIONAMIENTO_VIP = "Estacionamiento VIP"
+    DIFUSION_REDES_BLOQUE = "Difusión en redes de BLOQUE"
 
 
 class Lead(Base):
@@ -413,6 +428,11 @@ class QuoteWizardDetails(Base):
     como_conociste_otro: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     # --- Step 4: Servicios y montaje ---
+    # servicios_apoyo: fixed enum values stored as text[], NOT a catalog FK
+    # (REQ-012 §4.5 — PR#8 correction). Optional; not priced.
+    servicios_apoyo: Mapped[list[str]] = mapped_column(
+        ARRAY(String(64)), nullable=False, default=list, server_default="{}"
+    )
     montaje_requerido: Mapped[MontajeRequerido] = mapped_column(
         Enum(MontajeRequerido, values_callable=lambda x: [e.value for e in x]),
         nullable=False,
