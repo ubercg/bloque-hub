@@ -218,6 +218,31 @@ Each phase below is a reviewable work unit (work-unit-commits skill). Tests and 
 
 ---
 
+## Phase 11 — Correction: 4R adversarial review fixes (PR #9)
+
+**Why:** a 4R (risk/resilience/readability/reliability) adversarial review of the public quote-request backend found 1 BLOCKER, 4 CRITICAL, 2 WARNING, and 1 SUGGESTION issue. All 8 fixed with a failing test written first (Strict TDD).
+
+- [x] 11.1 **BLOCKER**: `apply_soft_hold_for_quote`'s `SlotNotAvailableError` (string arg, lock path) crashed the endpoint's `except` handler (assumed list-of-dicts) -> 500 instead of 409. Normalized `raw_conflicts` to only iterate when it's actually a list.
+- [x] 11.2 **CRITICAL**: unbounded string/int fields on `PublicQuoteRequestCreate` could hit a DB `DataError`/int4 overflow -> 500 + orphaned files. Added `max_length` matching DB column sizes, `le=1_000_000` on `asistentes_estimados`, character caps on TEXT fields, and list-size caps on `items`/`servicios_apoyo`.
+- [x] 11.3 **CRITICAL**: orphaned files on ANY unexpected exception (cleanup only ran in the 4 mapped except blocks). Restructured with a `committed` flag + `finally` so cleanup runs on every non-committed path regardless of exception type.
+- [x] 11.4 **CRITICAL**: `smtplib.SMTP(...)` had no socket timeout, could hang the worker thread indefinitely. Added `settings.SMTP_TIMEOUT_SECONDS` (default 10s), passed explicitly.
+- [x] 11.5 **CRITICAL**: `portal_gate/client.py` had zero logging and mapped ANY unexpected status code (e.g. 401 rotated API key, 429 rate-limit) to `NOT_ELIGIBLE`, masking a config/availability problem as a business rejection. Added WARNING logging on every retry + final failure; unexpected statuses now raise `PortalUnavailableError`.
+- [x] 11.6 **WARNING**: `except IntegrityError -> 409 DUPLICATE_FOLIO` was unconditional, mislabeling any constraint violation. Now only maps when the error actually names `uq_quotes_portal_folio`; other IntegrityErrors re-raise as 500.
+- [x] 11.7 **SUGGESTION**: `PORTAL_RETRY_ATTEMPTS` was used unclamped and backoff was unbounded exponential. Clamped attempts to `[1, 5]` and capped backoff at 2.0s/attempt.
+- [x] 11.8 **WARNING**: no app-level file COUNT cap (nginx-only). Added `settings.MAX_WIZARD_FILES` (default 10), rejected with 422 before any file read/write.
+
+**Result**: 8/8 fixes applied with RED->GREEN TDD evidence. Full public suite (`test_public_quote_gate.py`, `test_public_quote_submit.py`, `test_public_quote_email.py`, `test_public_price_preview.py`, `test_public_service_atomicity.py`, `test_public_service_pricing.py`, `test_quote_wizard_schema.py`, `test_portal_gate_client.py`) = 62/62 green; new `test_email_service.py` = 2/2 green.
+
+**Tracked follow-ups (NOT fixed in this PR, blocking before public internet exposure):**
+- Rate limiting on public endpoints (no throttle exists yet on `/api/public/quote-requests*`).
+- Circuit-breaker/async handling for Portal calls (still synchronous, blocking request threads on Portal latency).
+- Deploy checks: confirm `DEBUG=False` and a `DEFAULT_TENANT_ID` startup assertion (fails fast if unset) before production deploy.
+- RISK-4 (task 0.3): real Portal contract for `GET /api/public/space-event-requests/access/{folio}` still unconfirmed — implementation proceeds against the assumed shape.
+
+*Depends on: Phase 4, Phase 5 (endpoints + email + portal client existed). Branch `feat/qrf-09-review-fixes`, child of `feat/qrf-08-servicios-enum` (feature-branch-chain).*
+
+---
+
 ## Task → Requirement traceability
 
 | Task group | RN covered |
