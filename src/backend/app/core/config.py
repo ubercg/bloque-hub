@@ -75,6 +75,11 @@ class Settings(BaseSettings):
     SMTP_FROM: str = "noreply@bloque.example"
     NOTIFICATION_COMMERCIAL_EMAIL: str = "comercial@bloque.example"
     PORTAL_BASE_URL: str = "https://portal.bloque.example"
+    # BLOQUE Portal gate (folio validation, RN-001/002/004) — REQ-012
+    # Distinct from PORTAL_BASE_URL (display/link URL); this is the API host.
+    PORTAL_API_BASE_URL: str = "https://portal.bloque.example"
+    PORTAL_RETRY_ATTEMPTS: int = 3  # 1 initial + 2 retries
+    PORTAL_API_KEY: str | None = None  # optional; header added only if set
     # Datos SPEI para Pase de Caja (placeholder si no hay integración)
     SPEI_CLABE: str = ""
     SPEI_REFERENCE_PREFIX: str = "BLOQUE"

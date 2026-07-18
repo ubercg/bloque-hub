@@ -25,6 +25,7 @@ Each phase below is a reviewable work unit (work-unit-commits skill). Tests and 
   - **FROZEN (REQ-012 §4)**: `TipoEvento` = Firma de convenio, Conferencia, Taller / Workshop, Presentación, Networking, Rueda de prensa, Reunión institucional, Otro. `CaracterEvento` = Público, Privado, Gubernamental, Académico, Empresarial. `Sector` = Gobierno municipal/estatal/federal, Universidad / Institución educativa, Empresa privada, Organismo internacional, Organización civil, Startup / Emprendimiento, Otro. `ComoConociste` = Recomendación de otra institución, Redes sociales, Sitio web del Municipio, Ya he realizado eventos anteriores, Otro. `MontajeRequerido` = Estándar (mesas y sillas en U), Teatro, Aula, Cóctel, Protocolar para firma, Sin montaje. These supersede design.md §1.3's placeholder values and are implemented verbatim in migration `q1r2s3t4u5v6`.
 - [ ] 0.2 Confirm HTTP mapping (409 vs 422) and UX copy for `NoPricingRuleError` on submit (RISK-3, design §9 / §4.4 table).
 - [ ] 0.3 Confirm exact Portal `200` response body shape (status field name/values) for `GET /api/public/space-event-requests/access/{folio}` (RISK-4). If unavailable, proceed with the design's assumed shape and flag as a follow-up.
+  - **Still unconfirmed as of Phase 2 (PR #2).** Proceeded per this task's own fallback instruction: implemented against the assumed shape (`{"status": "quotation_in_progress"}`), centralized in `PORTAL_STATUS_FIELD`/`PORTAL_ELIGIBLE_STATUS_VALUE` constants at the top of `modules/portal_gate/client.py` for a one-line swap once the real contract is confirmed.
 
 *Depends on: nothing. Blocks: Phase 1 (migration needs 0.1), Phase 3 (needs 0.2), Phase 2 (needs 0.3).*
 
@@ -52,9 +53,9 @@ Each phase below is a reviewable work unit (work-unit-commits skill). Tests and 
 
 ## Phase 2 — Portal gate client (PR #2)
 
-- [ ] 2.1 New module `modules/portal_gate/client.py`: `PortalFolioStatus` enum (`ELIGIBLE`/`NOT_ELIGIBLE`/`UNAVAILABLE`), `PortalGateError`, `PortalUnavailableError`, `validate_folio(folio) -> PortalFolioStatus` per design §3 (httpx.Client, timeout 5s/connect 3s, retry only on timeout/ConnectError/5xx, no retry on 403/404).
-- [ ] 2.2 Add config settings to `core/config.py`: `PORTAL_API_BASE_URL`, `PORTAL_RETRY_ATTEMPTS` (default 3), `PORTAL_API_KEY` (optional header hook).
-- [ ] 2.3 pytest: `test_portal_gate_client.py` — mock httpx transport:
+- [x] 2.1 New module `modules/portal_gate/client.py`: `PortalFolioStatus` enum (`ELIGIBLE`/`NOT_ELIGIBLE`/`UNAVAILABLE`), `PortalGateError`, `PortalUnavailableError`, `validate_folio(folio) -> PortalFolioStatus` per design §3 (httpx.Client, timeout 5s/connect 3s, retry only on timeout/ConnectError/5xx, no retry on 403/404).
+- [x] 2.2 Add config settings to `core/config.py`: `PORTAL_API_BASE_URL`, `PORTAL_RETRY_ATTEMPTS` (default 3), `PORTAL_API_KEY` (optional header hook).
+- [x] 2.3 pytest: `test_portal_gate_client.py` — mock httpx transport:
   - 200 + `quotation_in_progress` → `ELIGIBLE`
   - 200 + other status → `NOT_ELIGIBLE`
   - 404 → `NOT_ELIGIBLE`, no retry
