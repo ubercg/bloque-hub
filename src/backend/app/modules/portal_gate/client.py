@@ -7,12 +7,15 @@ adapter so a future contract change is a one-line update.
 """
 
 import enum
+import logging
 import re
 import time
 
 import httpx
 
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 # TODO(REQ-012 RISK-4): confirm against real bloque_portal contract.
 # Assumed 200 response body shape: {"status": "<value>"}. The eligible value and
@@ -83,9 +86,16 @@ def validate_folio(folio: str) -> PortalFolioStatus:
                 response = client.get(url, headers=headers)
         except (httpx.TimeoutException, httpx.ConnectError) as exc:
             last_error = exc
+            logger.warning(
+                "Portal gate request failed for folio %s (attempt %d/%d): %s",
+                folio, attempt + 1, attempts, exc,
+            )
             if attempt < attempts - 1:
                 time.sleep(0.2 * 2**attempt)
                 continue
+            logger.warning(
+                "Portal gate unreachable for folio %s after %d attempts", folio, attempts
+            )
             raise PortalUnavailableError(
                 f"Portal unreachable after {attempts} attempts"
             ) from exc
@@ -98,16 +108,35 @@ def validate_folio(folio: str) -> PortalFolioStatus:
             last_error = PortalGateError(
                 f"Portal returned {response.status_code}"
             )
+            logger.warning(
+                "Portal gate returned %d for folio %s (attempt %d/%d)",
+                response.status_code, folio, attempt + 1, attempts,
+            )
             if attempt < attempts - 1:
                 time.sleep(0.2 * 2**attempt)
                 continue
+            logger.warning(
+                "Portal gate unavailable for folio %s after %d attempts "
+                "(last status %d)",
+                folio, attempts, response.status_code,
+            )
             raise PortalUnavailableError(
                 f"Portal unavailable after {attempts} attempts "
                 f"(last status {response.status_code})"
             ) from last_error
 
-        # Any other unexpected status: treat conservatively as not eligible.
-        return PortalFolioStatus.NOT_ELIGIBLE
+        # PR#9 FIX 5: any OTHER unexpected status (e.g. 401 from a rotated API
+        # key, 429 rate-limiting) is NOT a deterministic business rejection —
+        # unlike 403/404, it signals a misconfiguration or transient Portal
+        # issue and must not silently masquerade as NOT_ELIGIBLE.
+        logger.warning(
+            "Portal gate returned unexpected status %d for folio %s — "
+            "treating as unavailable, not a business rejection",
+            response.status_code, folio,
+        )
+        raise PortalUnavailableError(
+            f"Portal returned unexpected status {response.status_code}"
+        )
 
     # Unreachable in practice (loop always returns or raises), but keeps mypy happy.
     raise PortalUnavailableError(

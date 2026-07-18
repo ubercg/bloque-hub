@@ -111,6 +111,63 @@ class TestValidateFolioPortalResponses:
         assert called["count"] == 1
 
 
+class TestValidateFolioUnexpectedStatus:
+    """PR#9 FIX 5 (CRITICAL): an UNEXPECTED status code (not 200/403/404/5xx)
+    — e.g. a rotated API key returning 401, or rate-limiting returning 429 —
+    must NOT silently masquerade as a business rejection (NOT_ELIGIBLE). It
+    must be treated as Portal-unavailable/misconfigured, not swallowed."""
+
+    def test_401_does_not_return_not_eligible(self, monkeypatch):
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(401, json={"detail": "unauthorized"})
+
+        _patch_client(monkeypatch, handler, sleep_calls=[])
+
+        with pytest.raises(PortalUnavailableError):
+            validate_folio(VALID_FOLIO)
+
+    def test_429_does_not_return_not_eligible(self, monkeypatch):
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(429, json={"detail": "too many requests"})
+
+        _patch_client(monkeypatch, handler, sleep_calls=[])
+
+        with pytest.raises(PortalUnavailableError):
+            validate_folio(VALID_FOLIO)
+
+
+class TestValidateFolioLogging:
+    """PR#9 FIX 5 (CRITICAL): portal_gate had zero logging — retries and
+    final failures were invisible in production. Assert a WARNING is emitted
+    on each retryable failure and on the final PortalUnavailableError."""
+
+    def test_5xx_retry_logs_warning_with_attempt_and_folio(self, monkeypatch, caplog):
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(503, json={"detail": "service unavailable"})
+
+        _patch_client(monkeypatch, handler, sleep_calls=[])
+
+        with caplog.at_level("WARNING", logger="app.modules.portal_gate.client"):
+            with pytest.raises(PortalUnavailableError):
+                validate_folio(VALID_FOLIO)
+
+        warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+        assert len(warnings) >= settings.PORTAL_RETRY_ATTEMPTS
+        assert any(VALID_FOLIO in r.getMessage() for r in warnings)
+
+    def test_unexpected_status_logs_warning(self, monkeypatch, caplog):
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(401, json={"detail": "unauthorized"})
+
+        _patch_client(monkeypatch, handler, sleep_calls=[])
+
+        with caplog.at_level("WARNING", logger="app.modules.portal_gate.client"):
+            with pytest.raises(PortalUnavailableError):
+                validate_folio(VALID_FOLIO)
+
+        assert any(r.levelname == "WARNING" for r in caplog.records)
+
+
 class TestValidateFolioRetryBehavior:
     def test_timeout_then_success_returns_eligible_and_retries(self, monkeypatch):
         sleep_calls = []
