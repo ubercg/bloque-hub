@@ -205,6 +205,19 @@ Each phase below is a reviewable work unit (work-unit-commits skill). Tests and 
 
 ---
 
+## Phase 10 — Correction: `servicios_apoyo` fixed enum, not catalog (PR #8)
+
+**Why:** REQ-012 §4.5 defines `servicios_apoyo` as a FIXED closed multi-enum of 8 labels — NOT dynamic catalog items. PR #3/#4/#7b wrongly modeled it as `{service_id: uuid, quantity}` against the `AdditionalService` catalog (there is no public catalog-listing endpoint and the 8 services aren't catalog rows).
+
+- [x] 10.1 Backend: add `ServicioApoyo` enum (8 frozen values) to `crm/models.py`; add `quote_wizard_details.servicios_apoyo` (`text[]`) via additive migration `r7s8t9u0v1w2`. Change `PublicQuoteRequestCreate.servicios_apoyo` to `list[ServicioApoyo]`; remove `WizardServiceSelection`. Remove the `QuoteAdditionalService` persistence loop from `create_public_quote_request` — servicios are not priced.
+- [x] 10.2 Backend tests: `TestSubmitServiciosApoyo` in `test_public_quote_submit.py` — selected servicios persist verbatim on `quote_wizard_details`; invalid value → 422, zero rows. Full regression suite (Phase 1-5 tests) re-run green.
+- [x] 10.3 Frontend: `constants.ts::SERVICIOS_APOYO` (fixed labels), `quote-wizard.store.ts` (`serviciosApoyo: string[]` + `toggleServicioApoyo`, replaces `ServiceSelection`), `StepServicios.tsx` (renders fixed list, no `/additional-services` fetch), `StepResumen.tsx` (submit payload sends `servicios_apoyo: string[]`). `tsc`/`eslint` clean.
+- [x] 10.4 Living docs: `API-025-PublicQuoteRequests.md`, `ARQ-001-Decisiones-Core.md` §15.6, `BIT-012-Estatus-REQ-012.md` updated.
+
+*Depends on: Phase 4 (submit endpoint), Phase 7 (Step 4/5 frontend). Branch `feat/qrf-08-servicios-enum`, child of `feat/qrf-07b-wizard-steps345` (feature-branch-chain).*
+
+---
+
 ## Task → Requirement traceability
 
 | Task group | RN covered |
