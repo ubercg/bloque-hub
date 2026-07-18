@@ -395,7 +395,17 @@ def submit_quote_request(
                 raise
     except SlotNotAvailableError as exc:
         _cleanup_written_files(written_paths)
-        raw_conflicts = exc.args[0] if exc.args else []
+        # `SlotNotAvailableError` is raised from two different call sites with
+        # different `args[0]` shapes: `check_group_availability` raises with a
+        # list of conflict dicts, but the authoritative `with_for_update()`
+        # lock in `apply_soft_hold_for_quote` raises with a plain STRING
+        # message (services.py). Normalize so the string-arg (lock) path still
+        # maps to a clean 409 instead of crashing on `.items()`.
+        raw_conflicts = (
+            exc.args[0]
+            if exc.args and isinstance(exc.args[0], list)
+            else []
+        )
         conflicts = [
             {
                 key: (str(value) if isinstance(value, UUID) else value)

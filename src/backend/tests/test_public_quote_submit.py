@@ -345,6 +345,49 @@ class TestSubmitAtomicityAndReplay:
             quotes = db.query(Quote).filter(Quote.portal_folio == folio).all()
             assert len(quotes) == 1
 
+    def test_soft_hold_lock_conflict_string_arg_returns_409_not_500(
+        self, client, monkeypatch, tenant_a, db_super
+    ):
+        """PR#9 FIX 1 (BLOCKER): `apply_soft_hold_for_quote` raises
+        `SlotNotAvailableError` with a STRING arg (the `with_for_update()` lock
+        path), not a list of conflict dicts. The endpoint's `except
+        SlotNotAvailableError` handler must not crash trying to iterate a
+        string as if it were a list of dicts — it must still return a clean
+        409 SLOT_UNAVAILABLE with zero rows persisted."""
+        _set_default_tenant(monkeypatch, tenant_a.id)
+        _mock_eligible(monkeypatch)
+
+        space = _make_space(db_super, tenant_a.id, uuid4().hex[:8])
+        _make_pricing_rule(db_super, tenant_a.id, space.id)
+        day = date.today() + timedelta(days=85)
+        payload = _base_payload(items=[_item_dict(space.id, day)])
+
+        # `check_group_availability` reports available (pre-check race window),
+        # but the authoritative locked soft-hold raises with a STRING message —
+        # this is the real shape `apply_soft_hold_for_quote` uses (services.py L508).
+        import app.modules.crm.public_service as public_service_module
+        from app.modules.inventory.services import SlotNotAvailableError
+
+        monkeypatch.setattr(
+            public_module,
+            "check_group_availability",
+            lambda *args, **kwargs: {"all_available": True, "conflicts": []},
+        )
+
+        def _raise_string_conflict(*args, **kwargs):
+            raise SlotNotAvailableError("Slot is not available for soft hold")
+
+        monkeypatch.setattr(
+            public_service_module, "apply_soft_hold_for_quote", _raise_string_conflict
+        )
+
+        response = _submit(client, payload)
+
+        assert response.status_code == 409, response.text
+        assert response.json()["detail"]["reason"] == "SLOT_UNAVAILABLE"
+        with get_db_context(tenant_id=str(tenant_a.id), role=None) as db:
+            _no_rows_for(db, payload["correo_institucional"], payload["folio"])
+
 
 @pytest.mark.integration
 class TestSubmitServiciosApoyo:
