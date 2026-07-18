@@ -27,6 +27,7 @@ from app.modules.crm.models import (
     QuoteWizardDetails,
     QuoteWizardDocuments,
     Sector,
+    ServicioApoyo,
     TipoEvento,
 )
 from app.modules.identity.models import User
@@ -343,6 +344,54 @@ class TestSubmitAtomicityAndReplay:
         with get_db_context(tenant_id=str(tenant_a.id), role=None) as db:
             quotes = db.query(Quote).filter(Quote.portal_folio == folio).all()
             assert len(quotes) == 1
+
+
+@pytest.mark.integration
+class TestSubmitServiciosApoyo:
+    """servicios_apoyo is a FIXED closed enum (REQ-012 §4.5), NOT a catalog
+    lookup — persisted verbatim on quote_wizard_details, not priced (PR#8)."""
+
+    def test_selected_servicios_persist_on_wizard_details(
+        self, client, monkeypatch, tenant_a, db_super
+    ):
+        _set_default_tenant(monkeypatch, tenant_a.id)
+        _mock_eligible(monkeypatch)
+
+        space = _make_space(db_super, tenant_a.id, uuid4().hex[:8])
+        _make_pricing_rule(db_super, tenant_a.id, space.id)
+        day = date.today() + timedelta(days=94)
+        selected = [
+            ServicioApoyo.EQUIPO_AUDIOVISUAL.value,
+            ServicioApoyo.COFFEE_BREAK.value,
+        ]
+        payload = _base_payload(items=[_item_dict(space.id, day)], servicios_apoyo=selected)
+
+        response = _submit(client, payload)
+
+        assert response.status_code == 201, response.text
+        with get_db_context(tenant_id=str(tenant_a.id), role=None) as db:
+            quote = db.get(Quote, response.json()["quote_id"])
+            assert quote.wizard_details.servicios_apoyo == selected
+
+    def test_invalid_servicio_value_returns_422_zero_rows(
+        self, client, monkeypatch, tenant_a, db_super
+    ):
+        _set_default_tenant(monkeypatch, tenant_a.id)
+        _mock_eligible(monkeypatch)
+
+        space = _make_space(db_super, tenant_a.id, uuid4().hex[:8])
+        _make_pricing_rule(db_super, tenant_a.id, space.id)
+        day = date.today() + timedelta(days=95)
+        payload = _base_payload(
+            items=[_item_dict(space.id, day)],
+            servicios_apoyo=["Servicio inventado que no existe"],
+        )
+
+        response = _submit(client, payload)
+
+        assert response.status_code == 422
+        with get_db_context(tenant_id=str(tenant_a.id), role=None) as db:
+            _no_rows_for(db, payload["correo_institucional"], payload["folio"])
 
 
 @pytest.mark.integration
