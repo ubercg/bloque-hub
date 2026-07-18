@@ -23,11 +23,9 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
-from app.modules.catalog.models import AdditionalService
 from app.modules.crm.models import (
     Lead,
     Quote,
-    QuoteAdditionalService,
     QuoteItem,
     QuoteStatus,
     QuoteWizardDetails,
@@ -65,7 +63,8 @@ def create_public_quote_request(
     documents: list[WizardDocumentMeta] | None = None,
 ) -> Quote:
     """Atomically create Lead + Quote(portal_folio) + QuoteItem[] +
-    QuoteAdditionalService[] + QuoteWizardDetails + QuoteWizardDocuments[],
+    QuoteWizardDetails (incl. `servicios_apoyo`, a fixed enum list — REQ-012
+    §4.5, PR#8 — not a catalog/pricing lookup) + QuoteWizardDocuments[],
     computing pricing with correct types and applying the multi-item soft hold.
 
     The caller (endpoint) owns `db.commit()` / `db.rollback()` and RN-004
@@ -78,7 +77,6 @@ def create_public_quote_request(
             PricingRule for its date — propagated, never swallowed.
         SlotNotAvailableError: any item's slot could not be soft-held
             (raised by `apply_soft_hold_for_quote`).
-        ValueError: an unknown `service_id` in `servicios_apoyo`.
     """
     # 1. Lead from Step-3 requester data.
     lead = Lead(
@@ -133,28 +131,9 @@ def create_public_quote_request(
         )
     db.flush()
 
-    # 4. QuoteAdditionalService[] for each servicios_apoyo entry.
-    for selection in payload.servicios_apoyo:
-        service = db.get(AdditionalService, selection.service_id)
-        if service is None or service.tenant_id != tenant_id:
-            raise ValueError(f"Unknown additional service {selection.service_id}")
-        calculated_price = (
-            Decimal(str(service.unit_price))
-            * Decimal(str(service.factor))
-            * Decimal(str(selection.quantity))
-        ).quantize(Decimal("0.0001"))
-        db.add(
-            QuoteAdditionalService(
-                tenant_id=tenant_id,
-                quote_id=quote.id,
-                service_id=selection.service_id,
-                quantity=selection.quantity,
-                calculated_price=calculated_price,
-            )
-        )
-    db.flush()
-
-    # 5. QuoteWizardDetails (Step 1/3/4 + legal acceptance flags).
+    # 4. QuoteWizardDetails (Step 1/3/4 + legal acceptance flags). `servicios_apoyo`
+    #    is a FIXED closed enum (REQ-012 §4.5, PR#8) persisted verbatim — NOT a
+    #    catalog lookup, NOT priced.
     db.add(
         QuoteWizardDetails(
             tenant_id=tenant_id,
@@ -176,6 +155,7 @@ def create_public_quote_request(
             responsable_sitio_telefono=payload.responsable_sitio_telefono,
             como_conociste_bloque=payload.como_conociste_bloque,
             como_conociste_otro=payload.como_conociste_otro,
+            servicios_apoyo=[s.value for s in payload.servicios_apoyo],
             montaje_requerido=payload.montaje_requerido,
             requerimientos_especiales=payload.requerimientos_especiales,
             material_externo=payload.material_externo,
@@ -186,7 +166,7 @@ def create_public_quote_request(
     )
     db.flush()
 
-    # 6. QuoteWizardDocuments[] — metadata rows only (byte persistence is PR#4's
+    # 5. QuoteWizardDocuments[] — metadata rows only (byte persistence is PR#4's
     #    job); zero rows if no documents were provided (option A/B compatible).
     for doc in documents or []:
         db.add(
@@ -201,7 +181,7 @@ def create_public_quote_request(
         )
     db.flush()
 
-    # 7. Atomic multi-item soft hold — authoritative concurrency guard.
+    # 6. Atomic multi-item soft hold — authoritative concurrency guard.
     #    Raises SlotNotAvailableError if any slot is no longer AVAILABLE; the
     #    caller rolls back the whole transaction (zero rows persisted).
     slots = [

@@ -12,6 +12,7 @@ from app.modules.crm.models import (
     MontajeRequerido,
     QuoteStatus,
     Sector,
+    ServicioApoyo,
     TipoEvento,
 )
 from app.modules.portal_gate.client import is_valid_folio_format
@@ -150,13 +151,6 @@ class PublicWizardItem(BaseModel):
     hora_fin: time
 
 
-class WizardServiceSelection(BaseModel):
-    """Step 4 `servicios_apoyo` selection."""
-
-    service_id: UUID
-    quantity: float = Field(..., gt=0)
-
-
 class PublicQuoteRequestCreate(BaseModel):
     folio: str
 
@@ -185,7 +179,8 @@ class PublicQuoteRequestCreate(BaseModel):
     como_conociste_otro: str | None = None
 
     # Step 4: Servicios y montaje
-    servicios_apoyo: list[WizardServiceSelection] = []
+    # FIXED closed enum (REQ-012 §4.5), NOT a catalog lookup — optional, not priced.
+    servicios_apoyo: list[ServicioApoyo] = []
     montaje_requerido: MontajeRequerido
     requerimientos_especiales: str | None = None
     material_externo: bool = False
