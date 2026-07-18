@@ -72,7 +72,9 @@ def _send_smtp(
             part.add_header("Content-Disposition", f"attachment; filename={filename}")
             msg.attach(part)
 
-    with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT) as smtp:
+    with smtplib.SMTP(
+        settings.SMTP_HOST, settings.SMTP_PORT, timeout=settings.SMTP_TIMEOUT_SECONDS
+    ) as smtp:
         if settings.SMTP_USER and settings.SMTP_PASSWORD:
             smtp.starttls()
             smtp.login(settings.SMTP_USER, settings.SMTP_PASSWORD)

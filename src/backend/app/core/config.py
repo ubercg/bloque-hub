@@ -73,6 +73,9 @@ class Settings(BaseSettings):
     SMTP_USER: str = ""
     SMTP_PASSWORD: str = ""
     SMTP_FROM: str = "noreply@bloque.example"
+    # PR#9 FIX 4: explicit socket timeout for SMTP connections — without it a
+    # hung/black-holed SMTP server can block the worker thread indefinitely.
+    SMTP_TIMEOUT_SECONDS: float = 10.0
     NOTIFICATION_COMMERCIAL_EMAIL: str = "comercial@bloque.example"
     PORTAL_BASE_URL: str = "https://portal.bloque.example"
     # BLOQUE Portal gate (folio validation, RN-001/002/004) — REQ-012
