@@ -12,9 +12,15 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, ValidationError
 from sqlalchemy.exc import IntegrityError
 
+from datetime import date, time
+
 from app.core.config import settings
 from app.db.session import get_db_context
-from app.modules.crm.public_service import WizardDocumentMeta, create_public_quote_request
+from app.modules.crm.public_service import (
+    WizardDocumentMeta,
+    _duration_hours,
+    create_public_quote_request,
+)
 from app.modules.crm.schemas import PublicQuoteRequestCreate
 from app.modules.identity.models import Tenant
 from app.modules.inventory.services import (
@@ -25,7 +31,7 @@ from app.modules.notifications.email_service import send_email
 from app.modules.notifications.templating import render
 from app.modules.portal_gate import client as portal_gate_client
 from app.modules.portal_gate.client import PortalFolioStatus, PortalUnavailableError, is_valid_folio_format
-from app.modules.pricing.services import NoPricingRuleError
+from app.modules.pricing.services import NoPricingRuleError, calculate_price
 from app.modules.reservation_documents.services import (
     _ALLOWED_MIME_NORMALIZED,
     _ext_for_mime,
@@ -147,6 +153,94 @@ def validate_quote_request_folio(payload: FolioValidateRequest):
         folio=payload.folio,
         portal_status=portal_gate_client.PORTAL_ELIGIBLE_STATUS_VALUE,
     )
+
+
+# ----- Public pricing preview (REQ-012, PR#6b: fills a gap found during -----
+# ----- Phase 7 planning — design §6.6 anticipated it as a small, advisory ---
+# ----- public pricing-preview endpoint if needed) ---------------------------
+
+
+class PricePreviewItem(BaseModel):
+    space_id: UUID
+    fecha: date
+    hora_inicio: time
+    hora_fin: time
+
+
+class PricePreviewRequest(BaseModel):
+    items: list[PricePreviewItem]
+
+
+class PricePreviewItemResult(BaseModel):
+    space_id: UUID
+    fecha: date
+    hora_inicio: time
+    hora_fin: time
+    price: float
+
+
+class PricePreviewResponse(BaseModel):
+    items: list[PricePreviewItemResult]
+    total: float
+
+
+@router.post(
+    "/public/quote-requests/price-preview",
+    response_model=PricePreviewResponse,
+)
+def preview_quote_request_price(payload: PricePreviewRequest):
+    """
+    Public (no-auth) ADVISORY pricing preview for wizard Step 2
+    (design.md §6.6). An anonymous client cannot call the JWT-protected
+    `POST /quotes/calculate` or `/pricing-rules` endpoints, so this small
+    endpoint lets Step 2 render `cotizacionCalculada` before submit.
+
+    The authoritative price is ALWAYS recomputed server-side at submit
+    (`create_public_quote_request` -> `calculate_price`, same correct-types
+    call as this endpoint uses) — this preview never persists anything and
+    is not trusted for the final total.
+
+    `total` aggregates only the space prices (spaces-only total, matching
+    the locked submit-total decision) — no additional services here.
+    """
+    tenant_id = UUID(str(settings.DEFAULT_TENANT_ID))
+
+    with get_db_context(tenant_id=str(tenant_id), role=None) as db:
+        try:
+            results = []
+            for item in payload.items:
+                duration_hours = _duration_hours(
+                    item.hora_inicio, item.hora_fin, item.fecha
+                )
+                breakdown = calculate_price(
+                    space_id=item.space_id,
+                    duration_hours=duration_hours,
+                    tenant_id=tenant_id,
+                    target_date=item.fecha,
+                    db=db,
+                )
+                results.append(
+                    PricePreviewItemResult(
+                        space_id=item.space_id,
+                        fecha=item.fecha,
+                        hora_inicio=item.hora_inicio,
+                        hora_fin=item.hora_fin,
+                        price=float(breakdown.total_price),
+                    )
+                )
+        except NoPricingRuleError:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={"reason": "NO_PRICING_RULE"},
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={"reason": "INVALID_REQUEST", "message": str(exc)},
+            )
+
+    total = sum((item.price for item in results), 0.0)
+    return PricePreviewResponse(items=results, total=total)
 
 
 def _wizard_documents_storage_dir() -> Path:

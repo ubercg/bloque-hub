@@ -136,12 +136,26 @@ Each phase below is a reviewable work unit (work-unit-commits skill). Tests and 
 
 ## Phase 6 — Frontend: middleware fix + folio gate screen (PR #6)
 
-- [ ] 6.1 `middleware/auth-middleware.ts` — extend `isPublicPage` to include `request.nextUrl.pathname.startsWith('/solicitud')`.
-- [ ] 6.2 New route group `app/(public-wizard)/solicitud/page.tsx` — folio gate screen: input + validate call to `POST /api/public/quote-requests/validate-folio`, handles 200 unlocked / 403 RN-003 message / 503 Portal-unavailable message.
-- [ ] 6.3 New Zustand store `features/quote-wizard/store/quote-wizard.store.ts` per design §6.3 (gate + step 1–5 state, `currentStep`, actions).
-- [ ] 6.4 e2e/Playwright (if in test scope): anonymous `/solicitud` is NOT redirected to `/login`.
+- [x] 6.1 `middleware/auth-middleware.ts` — extend `isPublicPage` to include `request.nextUrl.pathname.startsWith('/solicitud')`.
+- [x] 6.2 New route group `app/(public-wizard)/solicitud/page.tsx` — folio gate screen: input + validate call to `POST /api/public/quote-requests/validate-folio`, handles 200 unlocked / 403 RN-003 message / 503 Portal-unavailable message.
+  - Also handles 422 invalid-format distinctly (server-authoritative; client regex is a UX hint only per RN-017).
+- [x] 6.3 New Zustand store `features/quote-wizard/store/quote-wizard.store.ts` per design §6.3 (gate + step 1–5 state, `currentStep`, actions).
+  - Exposed via `features/quote-wizard/index.ts` public barrel (project ESLint `no-restricted-imports` rule requires feature access through the index, not deep paths).
+- [x] 6.4 e2e/Playwright (if in test scope): anonymous `/solicitud` is NOT redirected to `/login`.
+  - `tests/e2e/solicitud-gate.spec.ts` written; runs from the HOST (Playwright browsers cannot run in the Alpine/musl frontend container) — not executed in this apply batch, only lint+tsc verified in-container.
 
 *Depends on: Phase 4 (gate endpoint contract). Parallel-safe with Phase 5.*
+
+---
+
+## Phase 6b — Public price-preview endpoint (PR #6b, gap found during Phase 7 planning)
+
+- [x] 6b.1 `POST /api/public/quote-requests/price-preview` (public, no auth) in `src/backend/app/api/public.py` — accepts a list of `{space_id, fecha, hora_inicio, hora_fin}` items, resolves `tenant_id = settings.DEFAULT_TENANT_ID`, calls `pricing.services.calculate_price` per item with the CORRECT types (reusing `crm/public_service.py::_duration_hours`), returns per-item price + spaces-only aggregate `total`. `NoPricingRuleError` -> 422 `NO_PRICING_RULE` (consistent with submit, design §4.4). Advisory only — submit always recomputes the authoritative price server-side.
+- [x] 6b.2 `tests/test_public_price_preview.py` — single item matches `calculate_price` result; multi-item aggregate == sum; space without a `PricingRule` -> 422 (not a silent default); no auth header required. Confirmed no regression in `test_public_quote_gate.py` / `test_public_quote_submit.py`.
+
+**Why this was needed:** design §6.6 anticipated "a small public pricing-preview endpoint if needed" for Step 2 of the public wizard, which must display `cotizacionCalculada` to an ANONYMOUS user before submit. The existing `POST /quotes/calculate` and `/pricing-rules` both require JWT (`require_tenant`), so an anonymous client could not compute a price preview — this PR fills that gap.
+
+*Depends on: Phase 4 (`calculate_price` correct-types pattern + `NoPricingRuleError` mapping). Feeds Phase 6 Step 2 (design §6.4/§6.6).*
 
 ---
 
