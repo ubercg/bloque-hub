@@ -69,17 +69,18 @@ Each phase below is a reviewable work unit (work-unit-commits skill). Tests and 
 
 ## Phase 3 — Submit service + pricing correctness (PR #3)
 
-- [ ] 3.1 New `crm/schemas.py` DTOs: `PublicWizardItem`, `WizardServiceSelection`, `PublicQuoteRequestCreate` with all Pydantic field validators + `@model_validator` conditionals (RN-006, RN-007, RN-008, RN-009, RN-010, RN-011, RN-014, RN-017) per design §2.3.
-- [ ] 3.2 New `crm/public_service.py::create_public_quote_request(tenant_id, payload, db) -> Quote`:
+- [x] 3.1 New `crm/schemas.py` DTOs: `PublicWizardItem`, `WizardServiceSelection`, `PublicQuoteRequestCreate` with all Pydantic field validators + `@model_validator` conditionals (RN-006, RN-007, RN-008, RN-009, RN-010, RN-011, RN-014, RN-017) per design §2.3.
+- [x] 3.2 New `crm/public_service.py::create_public_quote_request(tenant_id, payload, db) -> Quote`:
   - `_duration_hours()` helper (returns `Decimal`)
   - correct pricing call per item: `calculate_price(space_id, duration_hours: Decimal, tenant_id, target_date: date, db)` — propagate `NoPricingRuleError`, no broad `except`, no caller-supplied fallback price
   - persistence order: `Lead` → `Quote(portal_folio=...)` → `QuoteItem[]` → `QuoteAdditionalService[]` → `QuoteWizardDetails` → `QuoteWizardDocuments[]` (if files provided) → `apply_soft_hold_for_quote(...)`
   - resolve HTTP mapping for `NoPricingRuleError` per task 0.2
-- [ ] 3.3 pytest: `test_public_service_pricing.py`:
+  - **Note**: task 0.2 (409 vs 422 HTTP mapping) remains unresolved — out of scope for this PR (service layer only, no HTTP). `NoPricingRuleError` propagates uncaught; PR #4 (endpoints) owns the HTTP mapping decision.
+- [x] 3.3 pytest: `test_public_service_pricing.py`:
   - seeded `PricingRule` → computed price equals `calculate_price(...)` result exactly (regression test proving this is NOT the `create_quote` broken pattern)
   - space with no pricing rule → `NoPricingRuleError` propagated, not silently defaulted
   - multi-item aggregate total == sum of per-item prices
-- [ ] 3.4 pytest: `test_public_service_atomicity.py`:
+- [x] 3.4 pytest: `test_public_service_atomicity.py`:
   - all items available → all rows persisted (Lead, Quote, QuoteItem×N, QuoteAdditionalService×N or 0, QuoteWizardDetails, QuoteWizardDocuments×N or 0), soft-hold applied
   - one item unavailable (pre-held by another quote) → `SlotNotAvailableError`, zero rows persisted for this attempt (verify via DB query after rollback)
 
