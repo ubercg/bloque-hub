@@ -161,9 +161,12 @@ Each phase below is a reviewable work unit (work-unit-commits skill). Tests and 
 
 ## Phase 7 — Frontend: wizard steps 1–5 (PR #7, likely split further if >400 lines — see forecast)
 
-- [ ] 7.1 `app/(public-wizard)/solicitud/wizard/page.tsx` — step-driven client page reading `currentStep` from the store.
-- [ ] 7.2 Step 1 component (Evento): fields + client guards (RN-006/007/008 UX mirrors).
-- [ ] 7.3 Step 2 component (Espacio/fecha/cotización, multi-item): add/remove item blocks, availability + pricing preview call (design §6.6), `cotizacionCalculada` display.
+- [x] 7.1 `app/(public-wizard)/solicitud/wizard/page.tsx` — step-driven client page reading `currentStep` from the store.
+  - PR #7a: implemented with step indicator (1..5), Next/Back nav gated by per-step client validity, and a redirect-to-`/solicitud` guard when `folioUnlocked` is false.
+- [x] 7.2 Step 1 component (Evento): fields + client guards (RN-006/007/008 UX mirrors).
+  - PR #7a: `features/quote-wizard/components/StepEvento.tsx` + `features/quote-wizard/validation.ts::isStepEventoValid` + `features/quote-wizard/constants.ts` (frozen enum values).
+- [x] 7.3 Step 2 component (Espacio/fecha/cotización, multi-item): add/remove item blocks, availability + pricing preview call (design §6.6), `cotizacionCalculada` display.
+  - PR #7a: `features/quote-wizard/components/StepEspacio.tsx` — calls `POST /spaces/check-availability` then `POST /public/quote-requests/price-preview` per item; aggregate preliminary total; graceful unavailable/422 handling.
 - [ ] 7.4 Step 3 component (Solicitante y documentos): fields + conditional guards (RN-009/010) + `DocumentUpload.tsx` extracted from `booking/confirm/page.tsx` (RN-015, same MIME/size messaging, no rule change), wired to `store.documents`.
 - [ ] 7.5 Step 4 component (Servicios y montaje): `servicios_apoyo` multi-select, `montaje_requerido`, conditional `material_externo_detalle` guard (RN-011).
 - [ ] 7.6 Step 5 component (Resumen, aceptaciones, envío): summary render, both legal-acceptance checkboxes (RN-014) with links to `LEGAL_REGLAMENTO_URL`/`LEGAL_AVISO_PRIVACIDAD_URL`, submit disabled until both true, calls `POST /api/public/quote-requests` as multipart.
