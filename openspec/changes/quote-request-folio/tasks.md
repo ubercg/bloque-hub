@@ -124,9 +124,9 @@ Each phase below is a reviewable work unit (work-unit-commits skill). Tests and 
 
 ## Phase 5 — Notifications: best-effort confirmation email (PR #5, can bundle with Phase 4 if small enough)
 
-- [ ] 5.1 New Jinja template `notifications/templates/public_quote_confirmation.html` with recepción/revisión ≤24h hábiles copy.
-- [ ] 5.2 Wire best-effort email in the submit endpoint AFTER `db.commit()` (design §5): `try/except`, log failure, never fail the request, `email_sent` reflected in response. No `NotificationLog` write.
-- [ ] 5.3 pytest: `test_public_quote_email.py`:
+- [x] 5.1 New Jinja template `notifications/templates/public_quote_confirmation.html` with recepción/revisión ≤24h hábiles copy.
+- [x] 5.2 Wire best-effort email in the submit endpoint AFTER `db.commit()` (design §5): `try/except`, log failure, never fail the request, `email_sent` reflected in response. No `NotificationLog` write.
+- [x] 5.3 pytest: `test_public_quote_email.py`:
   - `send_email` mocked to raise → submit still 201, `email_sent=false`, failure logged, NO `NotificationLog` row written
   - `send_email` succeeds → 201, `email_sent=true`
 

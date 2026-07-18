@@ -1,6 +1,7 @@
 """Public API endpoints (no JWT required)."""
 
 import json
+import logging
 import mimetypes
 import re
 from pathlib import Path
@@ -20,6 +21,8 @@ from app.modules.inventory.services import (
     SlotNotAvailableError,
     check_group_availability,
 )
+from app.modules.notifications.email_service import send_email
+from app.modules.notifications.templating import render
 from app.modules.portal_gate import client as portal_gate_client
 from app.modules.portal_gate.client import PortalFolioStatus, PortalUnavailableError, is_valid_folio_format
 from app.modules.pricing.services import NoPricingRuleError
@@ -28,6 +31,8 @@ from app.modules.reservation_documents.services import (
     _ext_for_mime,
     normalize_mime,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["public"])
 
@@ -102,6 +107,7 @@ class FolioValidateResponse(BaseModel):
 class QuoteRequestSubmitResponse(BaseModel):
     quote_id: UUID
     total: float
+    email_sent: bool
 
 
 @router.post(
@@ -326,4 +332,27 @@ def submit_quote_request(
             detail={"reason": "INVALID_REQUEST", "message": str(exc)},
         )
 
-    return QuoteRequestSubmitResponse(quote_id=quote_id, total=quote_total)
+    # Best-effort confirmation email (RN-016, design.md §5). Placed AFTER
+    # commit, in the endpoint (not the service), so a mail failure can never
+    # touch the transaction. No NotificationLog write (it FKs reservations,
+    # not quotes).
+    email_sent = False
+    try:
+        html = render(
+            "public_quote_confirmation.html",
+            nombre_completo=parsed.nombre_completo,
+            folio=parsed.folio,
+            total=quote_total,
+        )
+        send_email(
+            to=parsed.correo_institucional,
+            subject="Recibimos tu solicitud de cotización",
+            html_body=html,
+        )
+        email_sent = True
+    except Exception as exc:
+        logger.warning("Confirmation email failed for quote %s: %s", quote_id, exc)
+
+    return QuoteRequestSubmitResponse(
+        quote_id=quote_id, total=quote_total, email_sent=email_sent
+    )
