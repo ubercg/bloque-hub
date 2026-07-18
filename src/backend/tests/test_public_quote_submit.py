@@ -459,6 +459,77 @@ class TestSubmitTenantResolution:
 
 
 @pytest.mark.integration
+class TestSubmitFieldLengthLimits:
+    """PR#9 FIX 2 (CRITICAL): unbounded string/int fields let a client send a
+    payload the DB column cannot hold (String(N) truncation -> DataError) or
+    an int overflowing Postgres int4 -> 500 instead of a clean 422, and (when
+    files were already written) orphaned files on disk. All three must be
+    rejected by Pydantic (422) before any DB write or file write happens."""
+
+    def test_over_length_nombre_completo_returns_422_zero_rows(
+        self, client, monkeypatch, tenant_a, db_super
+    ):
+        _set_default_tenant(monkeypatch, tenant_a.id)
+        _mock_eligible(monkeypatch)
+
+        space = _make_space(db_super, tenant_a.id, uuid4().hex[:8])
+        _make_pricing_rule(db_super, tenant_a.id, space.id)
+        day = date.today() + timedelta(days=110)
+        payload = _base_payload(
+            items=[_item_dict(space.id, day)],
+            nombre_completo="A" * 10_000,
+        )
+
+        response = _submit(client, payload)
+
+        assert response.status_code == 422, response.text
+        with get_db_context(tenant_id=str(tenant_a.id), role=None) as db:
+            _no_rows_for(db, payload["correo_institucional"], payload["folio"])
+
+    def test_asistentes_estimados_beyond_int4_returns_422_zero_rows(
+        self, client, monkeypatch, tenant_a, db_super
+    ):
+        _set_default_tenant(monkeypatch, tenant_a.id)
+        _mock_eligible(monkeypatch)
+
+        space = _make_space(db_super, tenant_a.id, uuid4().hex[:8])
+        _make_pricing_rule(db_super, tenant_a.id, space.id)
+        day = date.today() + timedelta(days=111)
+        payload = _base_payload(
+            items=[_item_dict(space.id, day)],
+            asistentes_estimados=99_999_999_999,
+        )
+
+        response = _submit(client, payload)
+
+        assert response.status_code == 422, response.text
+        with get_db_context(tenant_id=str(tenant_a.id), role=None) as db:
+            _no_rows_for(db, payload["correo_institucional"], payload["folio"])
+
+    def test_giant_no_whitespace_descripcion_evento_returns_422_zero_rows(
+        self, client, monkeypatch, tenant_a, db_super
+    ):
+        _set_default_tenant(monkeypatch, tenant_a.id)
+        _mock_eligible(monkeypatch)
+
+        space = _make_space(db_super, tenant_a.id, uuid4().hex[:8])
+        _make_pricing_rule(db_super, tenant_a.id, space.id)
+        day = date.today() + timedelta(days=112)
+        # A single no-whitespace "word" bypasses the 300-word RN-006 rule but
+        # must still be rejected by a character cap.
+        payload = _base_payload(
+            items=[_item_dict(space.id, day)],
+            descripcion_evento="x" * 50_000,
+        )
+
+        response = _submit(client, payload)
+
+        assert response.status_code == 422, response.text
+        with get_db_context(tenant_id=str(tenant_a.id), role=None) as db:
+            _no_rows_for(db, payload["correo_institucional"], payload["folio"])
+
+
+@pytest.mark.integration
 class TestSubmitFileValidation:
     def test_invalid_mime_rejected_zero_rows(self, client, monkeypatch, tenant_a, db_super):
         _set_default_tenant(monkeypatch, tenant_a.id)

@@ -156,35 +156,43 @@ class PublicQuoteRequestCreate(BaseModel):
 
     # Step 1: Evento
     tipo_evento: TipoEvento
-    nombre_evento: str | None = None
+    nombre_evento: str | None = Field(None, max_length=255)
     caracter_evento: CaracterEvento
-    descripcion_evento: str | None = None
-    asistentes_estimados: int = Field(..., gt=0)  # RN-007
+    # `quote_wizard_details.descripcion_evento` is a TEXT column (unbounded in
+    # the DB), so RN-006's 300-word rule alone is not a safety limit — a
+    # single no-whitespace "word" bypasses it. Cap the character count too
+    # (PR#9 FIX 2) to avoid an oversized payload reaching pricing/persistence.
+    descripcion_evento: str | None = Field(None, max_length=5000)
+    # PR#9 FIX 2: upper bound must stay within Postgres int4 (2_147_483_647).
+    asistentes_estimados: int = Field(..., gt=0, le=1_000_000)  # RN-007
     habra_prensa: bool
 
-    # Step 2: Espacio/fecha (multi-item, RN-012)
-    items: list[PublicWizardItem] = Field(..., min_length=1)
+    # Step 2: Espacio/fecha (multi-item, RN-012). PR#9 FIX 2: cap list size —
+    # an unbounded list means an unbounded number of pricing calls + rows.
+    items: list[PublicWizardItem] = Field(..., min_length=1, max_length=50)
 
     # Step 3: Solicitante
-    nombre_completo: str = Field(..., min_length=1)
-    cargo_puesto: str | None = None
-    institucion_organizacion: str | None = None
+    nombre_completo: str = Field(..., min_length=1, max_length=255)
+    cargo_puesto: str | None = Field(None, max_length=255)
+    institucion_organizacion: str | None = Field(None, max_length=255)
     sector: Sector
-    sector_otro: str | None = None
-    correo_institucional: EmailStr
-    telefono_contacto: str = Field(..., min_length=1)
-    responsable_sitio_nombre: str | None = None
-    responsable_sitio_telefono: str | None = None
+    sector_otro: str | None = Field(None, max_length=255)
+    correo_institucional: EmailStr = Field(..., max_length=255)
+    telefono_contacto: str = Field(..., min_length=1, max_length=64)
+    responsable_sitio_nombre: str | None = Field(None, max_length=255)
+    responsable_sitio_telefono: str | None = Field(None, max_length=64)
     como_conociste_bloque: ComoConociste
-    como_conociste_otro: str | None = None
+    como_conociste_otro: str | None = Field(None, max_length=255)
 
     # Step 4: Servicios y montaje
-    # FIXED closed enum (REQ-012 §4.5), NOT a catalog lookup — optional, not priced.
-    servicios_apoyo: list[ServicioApoyo] = []
+    # FIXED closed enum (REQ-012 §4.5), NOT a catalog lookup — optional, not
+    # priced. Capped at the enum's own cardinality (PR#9 FIX 2) — there is no
+    # legitimate reason to send more entries than there are enum values.
+    servicios_apoyo: list[ServicioApoyo] = Field(default=[], max_length=len(ServicioApoyo))
     montaje_requerido: MontajeRequerido
-    requerimientos_especiales: str | None = None
+    requerimientos_especiales: str | None = Field(None, max_length=5000)
     material_externo: bool = False
-    material_externo_detalle: str | None = None
+    material_externo_detalle: str | None = Field(None, max_length=5000)
 
     # Step 5: Legal acceptances (RN-014)
     acepta_info_correcta_autorizacion: bool
