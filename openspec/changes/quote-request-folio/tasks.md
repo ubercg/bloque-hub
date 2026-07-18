@@ -21,7 +21,8 @@ Each phase below is a reviewable work unit (work-unit-commits skill). Tests and 
 
 ## Phase 0 — RISK confirmations (blocking, do first)
 
-- [ ] 0.1 Confirm enum catalog values for `TipoEvento`, `CaracterEvento`, `Sector`, `ComoConociste`, `MontajeRequerido` against REQ-012/product before writing the migration (RISK-1, design §9). Freeze values in a short note in this tasks file or the PR description — enum values are costly to change post-migration.
+- [x] 0.1 Confirm enum catalog values for `TipoEvento`, `CaracterEvento`, `Sector`, `ComoConociste`, `MontajeRequerido` against REQ-012/product before writing the migration (RISK-1, design §9). Freeze values in a short note in this tasks file or the PR description — enum values are costly to change post-migration.
+  - **FROZEN (REQ-012 §4)**: `TipoEvento` = Firma de convenio, Conferencia, Taller / Workshop, Presentación, Networking, Rueda de prensa, Reunión institucional, Otro. `CaracterEvento` = Público, Privado, Gubernamental, Académico, Empresarial. `Sector` = Gobierno municipal/estatal/federal, Universidad / Institución educativa, Empresa privada, Organismo internacional, Organización civil, Startup / Emprendimiento, Otro. `ComoConociste` = Recomendación de otra institución, Redes sociales, Sitio web del Municipio, Ya he realizado eventos anteriores, Otro. `MontajeRequerido` = Estándar (mesas y sillas en U), Teatro, Aula, Cóctel, Protocolar para firma, Sin montaje. These supersede design.md §1.3's placeholder values and are implemented verbatim in migration `q1r2s3t4u5v6`.
 - [ ] 0.2 Confirm HTTP mapping (409 vs 422) and UX copy for `NoPricingRuleError` on submit (RISK-3, design §9 / §4.4 table).
 - [ ] 0.3 Confirm exact Portal `200` response body shape (status field name/values) for `GET /api/public/space-event-requests/access/{folio}` (RISK-4). If unavailable, proceed with the design's assumed shape and flag as a follow-up.
 
@@ -31,19 +32,19 @@ Each phase below is a reviewable work unit (work-unit-commits skill). Tests and 
 
 ## Phase 1 — Backend data model + migration (PR #1)
 
-- [ ] 1.1 Add new enums (`TipoEvento`, `CaracterEvento`, `Sector`, `ComoConociste`, `MontajeRequerido`) to `crm/models.py`, matching frozen values from task 0.1.
-- [ ] 1.2 Add `Quote.portal_folio: str | None` column (`String(32)`, nullable, indexed) to `crm/models.py`.
-- [ ] 1.3 Add `QuoteWizardDetails` model (1:1 adjunct, all Step 1/3/4 fields + legal acceptance flags) per design §1.3, with `wizard_details` relationship on `Quote`.
-- [ ] 1.4 Add `QuoteWizardDocuments` model (Option B): `id`, `tenant_id`, `quote_id` FK, `storage_key`, `mime_type`, `size_bytes`, `original_filename`, `created_at`. Add relationship on `Quote` (1:N).
-- [ ] 1.5 Write Alembic migration `xxxx_add_portal_folio_and_wizard_details.py`:
+- [x] 1.1 Add new enums (`TipoEvento`, `CaracterEvento`, `Sector`, `ComoConociste`, `MontajeRequerido`) to `crm/models.py`, matching frozen values from task 0.1.
+- [x] 1.2 Add `Quote.portal_folio: str | None` column (`String(32)`, nullable, indexed) to `crm/models.py`.
+- [x] 1.3 Add `QuoteWizardDetails` model (1:1 adjunct, all Step 1/3/4 fields + legal acceptance flags) per design §1.3, with `wizard_details` relationship on `Quote`.
+- [x] 1.4 Add `QuoteWizardDocuments` model (Option B): `id`, `tenant_id`, `quote_id` FK, `storage_key`, `mime_type`, `size_bytes`, `original_filename`, `created_at`. Add relationship on `Quote` (1:N).
+- [x] 1.5 Write Alembic migration `q1r2s3t4u5v6_add_portal_folio_and_wizard_details.py`:
   - `add_column("quotes", "portal_folio")`
   - partial unique index `uq_quotes_portal_folio ... WHERE portal_folio IS NOT NULL`
   - `create_table("quote_wizard_details", ...)` with named PG enum types and `UniqueConstraint("quote_id")`
   - `create_table("quote_wizard_documents", ...)`
   - RLS tenant policy for both new tables (mirror `quotes`/`quote_items` policy pattern per `docs/architecture/rls-multi-tenant.md`)
   - `downgrade()`: drop tables, drop index, drop column, drop enum types
-- [ ] 1.6 Migration smoke test: `alembic upgrade head` then `alembic downgrade -1` cleanly in test DB (pytest or manual, documented in PR).
-- [ ] 1.7 **Living docs**: update `20-Arquitectura/ARQ-001-Decisiones-Core.md` with `Quote.portal_folio`, `quote_wizard_details`, `quote_wizard_documents` (frontmatter `status: active`, update `created`/module fields as needed).
+- [x] 1.6 Migration smoke test: `alembic upgrade head` then `alembic downgrade -1` cleanly in test DB (verified manually + via pytest conftest auto-upgrade).
+- [x] 1.7 **Living docs**: update `20-Arquitectura/ARQ-001-Decisiones-Core.md` with `Quote.portal_folio`, `quote_wizard_details`, `quote_wizard_documents` (frontmatter `status: active`, update `created`/module fields as needed).
 
 *Depends on: Phase 0 (0.1). Parallel-safe with: nothing (foundation for all backend work). Blocks: Phase 2, 3, 4.*
 
