@@ -167,11 +167,16 @@ Each phase below is a reviewable work unit (work-unit-commits skill). Tests and 
   - PR #7a: `features/quote-wizard/components/StepEvento.tsx` + `features/quote-wizard/validation.ts::isStepEventoValid` + `features/quote-wizard/constants.ts` (frozen enum values).
 - [x] 7.3 Step 2 component (Espacio/fecha/cotización, multi-item): add/remove item blocks, availability + pricing preview call (design §6.6), `cotizacionCalculada` display.
   - PR #7a: `features/quote-wizard/components/StepEspacio.tsx` — calls `POST /spaces/check-availability` then `POST /public/quote-requests/price-preview` per item; aggregate preliminary total; graceful unavailable/422 handling.
-- [ ] 7.4 Step 3 component (Solicitante y documentos): fields + conditional guards (RN-009/010) + `DocumentUpload.tsx` extracted from `booking/confirm/page.tsx` (RN-015, same MIME/size messaging, no rule change), wired to `store.documents`.
-- [ ] 7.5 Step 4 component (Servicios y montaje): `servicios_apoyo` multi-select, `montaje_requerido`, conditional `material_externo_detalle` guard (RN-011).
-- [ ] 7.6 Step 5 component (Resumen, aceptaciones, envío): summary render, both legal-acceptance checkboxes (RN-014) with links to `LEGAL_REGLAMENTO_URL`/`LEGAL_AVISO_PRIVACIDAD_URL`, submit disabled until both true, calls `POST /api/public/quote-requests` as multipart.
-- [ ] 7.7 `app/(public-wizard)/solicitud/confirmacion/page.tsx` — success screen (≤24h hábiles message), shown regardless of `email_sent`.
-- [ ] 7.8 e2e/Playwright (if in test scope): submit button stays disabled until both acceptance checkboxes are true.
+- [x] 7.4 Step 3 component (Solicitante y documentos): fields + conditional guards (RN-009/010) + `DocumentUpload.tsx` extracted from `booking/confirm/page.tsx` (RN-015, same MIME/size messaging, no rule change), wired to `store.documents`.
+  - PR #7b: `features/quote-wizard/components/StepSolicitante.tsx` + `DocumentUpload.tsx` (flat `documents.adjuntos` File[] bucket — the wizard has no per-type document catalog, unlike `booking/confirm`'s KYC flow). Fixed oficio/gobierno informational note per REQ §4.4.
+- [x] 7.5 Step 4 component (Servicios y montaje): `servicios_apoyo` multi-select, `montaje_requerido`, conditional `material_externo_detalle` guard (RN-011).
+  - PR #7b: `features/quote-wizard/components/StepServicios.tsx`. `servicios_apoyo` catalog fetch is best-effort against `/additional-services` (**no such public endpoint exists yet** — degrades gracefully to "no hay servicios disponibles" without blocking the step; `servicios_apoyo` is optional `[]` in `PublicQuoteRequestCreate`). Flagged as a follow-up risk, not a regression — out of this PR's frontend-only scope.
+- [x] 7.6 Step 5 component (Resumen, aceptaciones, envío): summary render, both legal-acceptance checkboxes (RN-014) with links to `LEGAL_REGLAMENTO_URL`/`LEGAL_AVISO_PRIVACIDAD_URL`, submit disabled until both true, calls `POST /api/public/quote-requests` as multipart.
+  - PR #7b: `features/quote-wizard/components/StepResumen.tsx` — full read-only summary, multipart `FormData` (`payload` JSON + `files`), distinct inline error copy for 403/409 (SLOT_UNAVAILABLE/DUPLICATE_FOLIO)/422/503.
+- [x] 7.7 `app/(public-wizard)/solicitud/confirmacion/page.tsx` — success screen (≤24h hábiles message), shown regardless of `email_sent`.
+  - PR #7b: renders regardless of `email_sent` (subtle note only if false); resets the wizard store on mount.
+- [x] 7.8 e2e/Playwright (if in test scope): submit button stays disabled until both acceptance checkboxes are true.
+  - PR #7b: `tests/e2e/solicitud-wizard-submit.spec.ts` written; host-only (not run in-container), lint+tsc verified in-container.
 
 *Depends on: Phase 6 (store + gate screen), Phase 4/5 (submit contract + email confirmation copy). Sequential internally (steps share the store) but each step file is an independent commit/reviewable unit within the PR — consider splitting into PR #7a (steps 1-2) / #7b (steps 3-5 + confirmation) per Review Workload Forecast below.*
 
@@ -179,8 +184,10 @@ Each phase below is a reviewable work unit (work-unit-commits skill). Tests and 
 
 ## Phase 8 — Config settings consolidation + legal URLs (small, bundle into Phase 1 or 4 PR)
 
-- [ ] 8.1 Add `LEGAL_REGLAMENTO_URL`, `LEGAL_AVISO_PRIVACIDAD_URL` placeholder settings to `core/config.py`.
-- [ ] 8.2 Add matching `NEXT_PUBLIC_LEGAL_*` frontend env placeholders, referenced by Step 5 checkboxes.
+- [x] 8.1 Add `LEGAL_REGLAMENTO_URL`, `LEGAL_AVISO_PRIVACIDAD_URL` placeholder settings to `core/config.py`.
+  - PR #7b: added to `src/backend/app/core/config.py` (were listed in design §7 but not yet in the file).
+- [x] 8.2 Add matching `NEXT_PUBLIC_LEGAL_*` frontend env placeholders, referenced by Step 5 checkboxes.
+  - PR #7b: `features/quote-wizard/constants.ts` — `LEGAL_REGLAMENTO_URL` / `LEGAL_AVISO_PRIVACIDAD_URL` read `process.env.NEXT_PUBLIC_LEGAL_REGLAMENTO_URL` / `NEXT_PUBLIC_LEGAL_AVISO_PRIVACIDAD_URL` with matching fallback defaults.
 
 *Depends on: none functionally; bundle wherever convenient (recommend folding into Phase 2 or Phase 6 commit).*
 
