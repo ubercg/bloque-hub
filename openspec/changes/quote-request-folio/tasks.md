@@ -90,22 +90,23 @@ Each phase below is a reviewable work unit (work-unit-commits skill). Tests and 
 
 ## Phase 4 — Gate + submit endpoints (PR #4)
 
-- [ ] 4.1 New `api/public.py` (or extend existing) — gate endpoint `POST /api/public/quote-requests/validate-folio`: format regex check first (422, no Portal call if invalid) → `portal_gate.validate_folio()` → 200 unlocked / 403 RN-003 / 503 PORTAL_UNAVAILABLE.
-- [ ] 4.2 Submit endpoint `POST /api/public/quote-requests` as **multipart/form-data**: `payload` part (JSON, parsed into `PublicQuoteRequestCreate`) + `files[]` part (0..N documents). Wire transaction boundary per design §4.2:
+- [x] 4.1 New `api/public.py` (or extend existing) — gate endpoint `POST /api/public/quote-requests/validate-folio`: format regex check first (422, no Portal call if invalid) → `portal_gate.validate_folio()` → 200 unlocked / 403 RN-003 / 503 PORTAL_UNAVAILABLE.
+- [x] 4.2 Submit endpoint `POST /api/public/quote-requests` as **multipart/form-data**: `payload` part (JSON, parsed into `PublicQuoteRequestCreate`) + `files[]` part (0..N documents). Wire transaction boundary per design §4.2:
   1. Parse + validate `payload` JSON → 422 on failure, no DB touched
   2. Validate uploaded files against `MAX_KYC_FILE_BYTES` + existing MIME allowlist (reuse existing constants) → 422 on violation, no DB touched, no Portal call yet
   3. RN-004 revalidation via `portal_gate.validate_folio()` BEFORE opening the write tx → 403 / 503, nothing opened
   4. `with get_db_context(tenant_id=DEFAULT_TENANT_ID, role=None) as db:` → `check_group_availability()` pre-check → `create_public_quote_request()` (persists rows + saves file bytes to `WIZARD_DOCUMENTS_STORAGE_PATH`, storing `storage_key` in `QuoteWizardDocuments`) → `db.commit()`
   5. Catch `SlotNotAvailableError`/`IntegrityError`/`NoPricingRuleError`/`ValueError` → rollback → map to 409/422 per error table (design §4.4)
-- [ ] 4.3 Tenant resolution: both endpoints resolve `tenant_id` from `settings.DEFAULT_TENANT_ID`, no JWT/session dependency.
-- [ ] 4.4 Add settings: `WIZARD_DOCUMENTS_STORAGE_PATH` to `core/config.py`.
-- [ ] 4.5 pytest: `test_public_quote_gate.py`:
+- [x] 4.3 Tenant resolution: both endpoints resolve `tenant_id` from `settings.DEFAULT_TENANT_ID`, no JWT/session dependency.
+- [x] 4.4 Add settings: `WIZARD_DOCUMENTS_STORAGE_PATH` to `core/config.py`.
+- [x] 4.5 pytest: `test_public_quote_gate.py`:
   - well-formed folio + Portal `quotation_in_progress` → 200 unlocked, no auth header required
   - malformed folio → 422 AND assert Portal client `validate_folio` NEVER called (spy/`assert_not_called`)
   - Portal 404/403/wrong-status → 403 RN-003 message
   - Portal timeout exhausted → 503 PORTAL_UNAVAILABLE (distinct from 403)
   - Portal timeout-then-success → 200, assert retry happened
-- [ ] 4.6 pytest: `test_public_quote_submit.py`:
+  - **Note**: retry-then-success is covered in PR#2's `test_portal_gate_client.py` (per user's explicit scope note); PR#4's gate tests focus on the endpoint's HTTP mapping (200/403/503) using a mocked `validate_folio`.
+- [x] 4.6 pytest: `test_public_quote_submit.py`:
   - happy path multi-item (3 items) + documents → 201; assert Quote.total == aggregate, 3 QuoteItems, QuoteWizardDetails row, QuoteWizardDocuments rows persisted with correct storage_key, portal_folio set, Lead created, NO User row
   - RN-004: eligible at gate, Portal reports not-eligible at submit-time revalidation → 403, zero rows persisted (query DB to confirm)
   - RN-004: Portal unavailable at submit-time revalidation → 503, zero rows persisted
@@ -115,6 +116,7 @@ Each phase below is a reviewable work unit (work-unit-commits skill). Tests and 
   - no-auth access: gate + submit succeed with no Authorization header
   - tenant resolution: persisted rows carry `tenant_id == DEFAULT_TENANT_ID`
   - multipart document persistence: valid MIME/size files persisted; invalid MIME/oversized file rejected with same existing validation behavior (RN-015), zero rows
+  - **Result**: 23/23 new tests GREEN (`test_public_quote_gate.py` + `test_public_quote_submit.py`); PR#1–3 regression suite (`test_portal_gate_client.py`, `test_public_service_pricing.py`, `test_public_service_atomicity.py`, `test_public_catalog.py`) re-run GREEN, no regression introduced by this PR (pre-existing unrelated collection/DB-isolation failures in other test files confirmed present on the base branch too via `git stash` comparison).
 
 *Depends on: Phase 2, Phase 3. Sequential — cannot start until both are merged/available.*
 

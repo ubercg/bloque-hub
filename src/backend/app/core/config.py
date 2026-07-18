@@ -80,6 +80,8 @@ class Settings(BaseSettings):
     PORTAL_API_BASE_URL: str = "https://portal.bloque.example"
     PORTAL_RETRY_ATTEMPTS: int = 3  # 1 initial + 2 retries
     PORTAL_API_KEY: str | None = None  # optional; header added only if set
+    # Storage for public wizard documents (quote_wizard_documents, Option B); filesystem
+    WIZARD_DOCUMENTS_STORAGE_PATH: str = "data/wizard_documents"
     # Datos SPEI para Pase de Caja (placeholder si no hay integración)
     SPEI_CLABE: str = ""
     SPEI_REFERENCE_PREFIX: str = "BLOQUE"
