@@ -56,6 +56,22 @@ export const MONTAJE_REQUERIDO_OPTIONS = [
   'Sin montaje',
 ] as const;
 
+/**
+ * `servicios_apoyo` — FIXED closed multi-enum (REQ-012 §4.5, PR#8 correction).
+ * NOT a catalog fetch. MUST match `ServicioApoyo` in
+ * `src/backend/app/modules/crm/models.py` verbatim.
+ */
+export const SERVICIOS_APOYO = [
+  'Equipo audiovisual',
+  'Fotografía oficial',
+  'Transmisión en vivo',
+  'Coffee break',
+  'Registro de asistentes',
+  'Traducción simultánea',
+  'Estacionamiento VIP',
+  'Difusión en redes de BLOQUE',
+] as const;
+
 /** REQ-012 §4.4 — fixed informational note shown in Step 3 for gobierno/oficio requesters. */
 export const OFICIO_GOBIERNO_NOTE =
   'Si tu institución requiere oficio para autorizar el evento, adjúntalo en la sección de documentos. El equipo de BLOQUE lo revisará junto con tu solicitud.';

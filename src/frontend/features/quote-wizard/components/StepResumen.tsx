@@ -93,10 +93,7 @@ export function StepResumen() {
       responsable_sitio_telefono: state.responsableSitioTelefono || null,
       como_conociste_bloque: state.comoConociste,
       como_conociste_otro: state.comoConocisteOtro || null,
-      servicios_apoyo: state.serviciosApoyo.map((s) => ({
-        service_id: s.serviceId,
-        quantity: s.quantity,
-      })),
+      servicios_apoyo: state.serviciosApoyo,
       montaje_requerido: state.montajeRequerido,
       requerimientos_especiales: state.requerimientosEspeciales || null,
       material_externo: state.materialExterno,

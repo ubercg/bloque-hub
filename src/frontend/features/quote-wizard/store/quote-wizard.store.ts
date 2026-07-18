@@ -17,12 +17,6 @@ export interface WizardItem {
   cotizacionCalculada?: number;
 }
 
-/** Step 4 selection: one servicio de apoyo + quantity. */
-export interface ServiceSelection {
-  serviceId: string;
-  quantity: number;
-}
-
 export type WizardStep = 1 | 2 | 3 | 4 | 5;
 
 export interface QuoteWizardState {
@@ -58,7 +52,8 @@ export interface QuoteWizardState {
   documents: Record<string, File | File[]>;
 
   // Step 4 — Servicios y montaje
-  serviciosApoyo: ServiceSelection[];
+  /** FIXED closed enum values (REQ-012 §4.5), NOT catalog IDs — see `SERVICIOS_APOYO`. */
+  serviciosApoyo: string[];
   montajeRequerido: string;
   requerimientosEspeciales: string;
   materialExterno: boolean;
@@ -81,8 +76,7 @@ export interface QuoteWizardState {
   setStep: (step: WizardStep) => void;
   addItem: (item: WizardItem) => void;
   removeItem: (index: number) => void;
-  addServiceSelection: (service: ServiceSelection) => void;
-  removeServiceSelection: (serviceId: string) => void;
+  toggleServicioApoyo: (servicio: string) => void;
   goNext: () => void;
   goBack: () => void;
   reset: () => void;
@@ -116,7 +110,7 @@ const initialState = {
   comoConocisteOtro: '',
   documents: {} as Record<string, File | File[]>,
 
-  serviciosApoyo: [] as ServiceSelection[],
+  serviciosApoyo: [] as string[],
   montajeRequerido: '',
   requerimientosEspeciales: '',
   materialExterno: false,
@@ -149,22 +143,11 @@ export const useQuoteWizardStore = create<QuoteWizardState>((set) => ({
   removeItem: (index) =>
     set((state) => ({ items: state.items.filter((_, i) => i !== index) })),
 
-  addServiceSelection: (service) =>
-    set((state) => {
-      const exists = state.serviciosApoyo.some((s) => s.serviceId === service.serviceId);
-      if (exists) {
-        return {
-          serviciosApoyo: state.serviciosApoyo.map((s) =>
-            s.serviceId === service.serviceId ? service : s
-          ),
-        };
-      }
-      return { serviciosApoyo: [...state.serviciosApoyo, service] };
-    }),
-
-  removeServiceSelection: (serviceId) =>
+  toggleServicioApoyo: (servicio) =>
     set((state) => ({
-      serviciosApoyo: state.serviciosApoyo.filter((s) => s.serviceId !== serviceId),
+      serviciosApoyo: state.serviciosApoyo.includes(servicio)
+        ? state.serviciosApoyo.filter((s) => s !== servicio)
+        : [...state.serviciosApoyo, servicio],
     })),
 
   goNext: () =>

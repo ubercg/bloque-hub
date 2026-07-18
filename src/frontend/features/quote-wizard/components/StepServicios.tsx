@@ -1,62 +1,22 @@
 'use client';
 
 /**
- * Wizard Step 4 — Servicios y montaje (REQ-012 §4, RN-011). `servicios_apoyo`
- * is a best-effort catalog fetch (no dedicated public catalog endpoint exists
- * yet for additional services — see apply-progress risk note); the section
- * degrades gracefully to "no hay servicios disponibles" without blocking the
- * step, since `servicios_apoyo` is optional in the submit payload.
+ * Wizard Step 4 — Servicios y montaje (REQ-012 §4.5, RN-011). `servicios_apoyo`
+ * is a FIXED closed multi-enum (`SERVICIOS_APOYO`), NOT a dynamic catalog —
+ * rendered directly, no API fetch (PR#8 correction).
  */
 
-import { useEffect, useState } from 'react';
-
-import apiClient from '@/lib/http/apiClient';
-
-import { MATERIAL_EXTERNO_NOTICE, MONTAJE_REQUERIDO_OPTIONS } from '../constants';
+import { MATERIAL_EXTERNO_NOTICE, MONTAJE_REQUERIDO_OPTIONS, SERVICIOS_APOYO } from '../constants';
 import { useQuoteWizardStore } from '../store/quote-wizard.store';
-
-interface AdditionalServiceOption {
-  id: string;
-  name: string;
-}
 
 export function StepServicios() {
   const serviciosApoyo = useQuoteWizardStore((s) => s.serviciosApoyo);
-  const addServiceSelection = useQuoteWizardStore((s) => s.addServiceSelection);
-  const removeServiceSelection = useQuoteWizardStore((s) => s.removeServiceSelection);
+  const toggleServicioApoyo = useQuoteWizardStore((s) => s.toggleServicioApoyo);
   const montajeRequerido = useQuoteWizardStore((s) => s.montajeRequerido);
   const requerimientosEspeciales = useQuoteWizardStore((s) => s.requerimientosEspeciales);
   const materialExterno = useQuoteWizardStore((s) => s.materialExterno);
   const materialExternoDetalle = useQuoteWizardStore((s) => s.materialExternoDetalle);
   const setField = useQuoteWizardStore((s) => s.setField);
-
-  const [services, setServices] = useState<AdditionalServiceOption[]>([]);
-  const [servicesUnavailable, setServicesUnavailable] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    apiClient
-      .get<AdditionalServiceOption[]>('/additional-services')
-      .then((res) => {
-        if (!cancelled) setServices(Array.isArray(res.data) ? res.data : []);
-      })
-      .catch(() => {
-        if (!cancelled) setServicesUnavailable(true);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const isSelected = (serviceId: string) => serviciosApoyo.some((s) => s.serviceId === serviceId);
-
-  const toggleService = (serviceId: string) => {
-    if (isSelected(serviceId)) {
-      removeServiceSelection(serviceId);
-    } else {
-      addServiceSelection({ serviceId, quantity: 1 });
-    }
-  };
 
   return (
     <div className="flex flex-col gap-5">
@@ -64,24 +24,20 @@ export function StepServicios() {
 
       <div>
         <span className="block text-sm font-medium text-gray-700 mb-1">Servicios de apoyo (opcional)</span>
-        {servicesUnavailable || services.length === 0 ? (
-          <p className="text-xs text-gray-500">No hay servicios de apoyo disponibles en este momento.</p>
-        ) : (
-          <ul className="flex flex-col gap-2">
-            {services.map((svc) => (
-              <li key={svc.id}>
-                <label className="inline-flex items-center gap-2 text-sm text-gray-700">
-                  <input
-                    type="checkbox"
-                    checked={isSelected(svc.id)}
-                    onChange={() => toggleService(svc.id)}
-                  />
-                  {svc.name}
-                </label>
-              </li>
-            ))}
-          </ul>
-        )}
+        <ul className="flex flex-col gap-2">
+          {SERVICIOS_APOYO.map((servicio) => (
+            <li key={servicio}>
+              <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+                <input
+                  type="checkbox"
+                  checked={serviciosApoyo.includes(servicio)}
+                  onChange={() => toggleServicioApoyo(servicio)}
+                />
+                {servicio}
+              </label>
+            </li>
+          ))}
+        </ul>
       </div>
 
       <div>
