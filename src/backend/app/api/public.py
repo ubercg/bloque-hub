@@ -323,6 +323,17 @@ def submit_quote_request(
 
     # 2. Validate uploaded files (RN-015) — reuse existing MIME/size rules.
     #    No DB touched, no Portal call yet.
+    # PR#9 FIX 8: app-level file COUNT cap, checked BEFORE reading/writing
+    # any file byte — nginx-level limits alone are not defense in depth.
+    if len(files) > settings.MAX_WIZARD_FILES:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "reason": "TOO_MANY_FILES",
+                "message": f"Máximo {settings.MAX_WIZARD_FILES} archivos permitidos.",
+            },
+        )
+
     validated_files: list[tuple[str, str, bytes]] = []
     for upload in files:
         content = upload.file.read()

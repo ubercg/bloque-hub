@@ -85,6 +85,9 @@ class Settings(BaseSettings):
     PORTAL_API_KEY: str | None = None  # optional; header added only if set
     # Storage for public wizard documents (quote_wizard_documents, Option B); filesystem
     WIZARD_DOCUMENTS_STORAGE_PATH: str = "data/wizard_documents"
+    # PR#9 FIX 8: app-level cap on the number of files in one wizard submit —
+    # nginx-level limits alone are not defense in depth for the application.
+    MAX_WIZARD_FILES: int = 10
     # Legal copy URLs (placeholders until legal supplies canonical docs) — RN-014 checkboxes
     LEGAL_REGLAMENTO_URL: str = "https://bloque.example/reglamento"
     LEGAL_AVISO_PRIVACIDAD_URL: str = "https://bloque.example/aviso-privacidad"

@@ -663,6 +663,44 @@ class TestSubmitFileValidation:
         with get_db_context(tenant_id=str(tenant_a.id), role=None) as db:
             _no_rows_for(db, payload["correo_institucional"], payload["folio"])
 
+    def test_too_many_files_rejected_before_any_file_written(
+        self, client, monkeypatch, tenant_a, db_super
+    ):
+        """PR#9 FIX 8 (WARNING): a file COUNT cap must exist in the app
+        itself (not only at the nginx layer) — rejected with 422 BEFORE any
+        file bytes are read/written or the DB is touched."""
+        import pathlib
+
+        _set_default_tenant(monkeypatch, tenant_a.id)
+        monkeypatch.setattr(settings, "MAX_WIZARD_FILES", 3)
+        called = {"count": 0}
+
+        def _spy(folio: str):
+            called["count"] += 1
+            return PortalFolioStatus.ELIGIBLE
+
+        monkeypatch.setattr(public_module.portal_gate_client, "validate_folio", _spy)
+
+        space = _make_space(db_super, tenant_a.id, uuid4().hex[:8])
+        _make_pricing_rule(db_super, tenant_a.id, space.id)
+        day = date.today() + timedelta(days=96)
+        payload = _base_payload(items=[_item_dict(space.id, day)])
+
+        files = [
+            ("files", (f"doc{i}.pdf", b"%PDF-1.4 fake pdf content", "application/pdf"))
+            for i in range(4)
+        ]
+        response = _submit(client, payload, files=files)
+
+        assert response.status_code == 422, response.text
+        assert called["count"] == 0
+        with get_db_context(tenant_id=str(tenant_a.id), role=None) as db:
+            _no_rows_for(db, payload["correo_institucional"], payload["folio"])
+        storage_dir = pathlib.Path(settings.WIZARD_DOCUMENTS_STORAGE_PATH)
+        tenant_dir = storage_dir / str(tenant_a.id)
+        leftover = list(tenant_dir.glob("*")) if tenant_dir.exists() else []
+        assert leftover == []
+
 
 @pytest.mark.integration
 class TestSubmitPayloadValidation:
