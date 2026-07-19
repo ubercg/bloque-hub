@@ -31,6 +31,7 @@ from app.modules.inventory.services import (
     apply_soft_hold_for_quote,
 )
 from app.modules.pricing.models import PricingRule
+from tests.conftest import unique_portal_folio
 
 
 def _make_space(db_super, tenant_id, suffix: str) -> Space:
@@ -64,7 +65,7 @@ def _make_pricing_rule(db_super, tenant_id, space_id) -> None:
 
 
 def _valid_folio() -> str:
-    return f"BCE-20260715-172822-{uuid4().int % 10000:04d}"
+    return unique_portal_folio()
 
 
 def _base_payload(**overrides) -> dict:

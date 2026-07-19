@@ -1,4 +1,5 @@
 import os
+import random
 import uuid
 from urllib.parse import urlparse, urlunparse
 
@@ -29,6 +30,22 @@ from app.modules.identity.models import Tenant, User, UserRole
 
 # Fixed bcrypt hash for "password" (no passlib runtime in tests to avoid bcrypt backend issues)
 TEST_PASSWORD_HASH = "$2b$12$2VxkZdj2onpxbNihro/2IuXvmJewH4UzwyjKd9qmaf2IZ.4Go9fB6"
+
+
+def unique_portal_folio() -> str:
+    """Generate a full-entropy `portal_folio` matching `^BCE-\\d{8}-\\d{6}-\\d{4}$`.
+
+    The server's `is_valid_folio_format` only checks digit shape, not that the
+    date/time segments are real, so every segment is randomized here. This
+    avoids folio collisions against rows accumulated in the shared test DB
+    across pytest runs (the DB is never truncated between runs — see
+    `sdd/quote-request-folio/apply-progress` for the full investigation).
+    """
+    return (
+        f"BCE-{random.randint(0, 99999999):08d}"
+        f"-{random.randint(0, 999999):06d}"
+        f"-{random.randint(0, 9999):04d}"
+    )
 
 
 @pytest.fixture

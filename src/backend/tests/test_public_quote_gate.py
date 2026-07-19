@@ -5,16 +5,15 @@ no Portal call on malformed folio), then Portal eligibility (RN-001/002/003)
 with a distinct PORTAL_UNAVAILABLE taxonomy (resilience requirement).
 """
 
-from uuid import uuid4
-
 import app.api.public as public_module
 from app.modules.portal_gate.client import PortalFolioStatus, PortalUnavailableError
+from tests.conftest import unique_portal_folio
 
 VALID_FOLIO = "BCE-20260715-172822-2973"
 
 
 def _valid_folio() -> str:
-    return f"BCE-20260715-172822-{uuid4().int % 10000:04d}"
+    return unique_portal_folio()
 
 
 class TestFolioFormatValidation:

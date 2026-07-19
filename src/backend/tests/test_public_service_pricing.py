@@ -28,6 +28,7 @@ from app.modules.crm.schemas import PublicQuoteRequestCreate, PublicWizardItem
 from app.modules.inventory.models import Space
 from app.modules.pricing.models import PricingRule
 from app.modules.pricing.services import NoPricingRuleError, calculate_price
+from tests.conftest import unique_portal_folio
 
 
 def _make_space(db_super, tenant_id, suffix: str) -> Space:
@@ -61,7 +62,7 @@ def _make_pricing_rule(db_super, tenant_id, space_id) -> PricingRule:
 
 
 def _valid_folio() -> str:
-    return f"BCE-20260715-172822-{uuid4().int % 10000:04d}"
+    return unique_portal_folio()
 
 
 def _base_payload(**overrides) -> dict:
