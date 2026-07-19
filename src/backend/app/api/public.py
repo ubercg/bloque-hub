@@ -7,7 +7,7 @@ import re
 from pathlib import Path
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, ValidationError
 from sqlalchemy.exc import IntegrityError
@@ -15,6 +15,7 @@ from sqlalchemy.exc import IntegrityError
 from datetime import date, time
 
 from app.core.config import settings
+from app.core.rate_limit import limiter
 from app.db.session import get_db_context
 from app.modules.crm.public_service import (
     WizardDocumentMeta,
@@ -120,10 +121,15 @@ class QuoteRequestSubmitResponse(BaseModel):
     "/public/quote-requests/validate-folio",
     response_model=FolioValidateResponse,
 )
-def validate_quote_request_folio(payload: FolioValidateRequest):
+@limiter.limit(lambda: settings.RATE_LIMIT_VALIDATE_FOLIO)
+def validate_quote_request_folio(request: Request, payload: FolioValidateRequest):
     """
     Folio gate (RN-001/002/003/017). Format is checked BEFORE any outbound
     call to Portal — a malformed folio never triggers `portal_gate_client`.
+
+    Rate limited per-IP (PR#10, `settings.RATE_LIMIT_VALIDATE_FOLIO`,
+    default `20/minute`) — unauthenticated, so throttling is the only
+    protection against abuse.
     """
     if not is_valid_folio_format(payload.folio):
         raise HTTPException(
@@ -188,7 +194,8 @@ class PricePreviewResponse(BaseModel):
     "/public/quote-requests/price-preview",
     response_model=PricePreviewResponse,
 )
-def preview_quote_request_price(payload: PricePreviewRequest):
+@limiter.limit(lambda: settings.RATE_LIMIT_PRICE_PREVIEW)
+def preview_quote_request_price(request: Request, payload: PricePreviewRequest):
     """
     Public (no-auth) ADVISORY pricing preview for wizard Step 2
     (design.md §6.6). An anonymous client cannot call the JWT-protected
@@ -202,6 +209,11 @@ def preview_quote_request_price(payload: PricePreviewRequest):
 
     `total` aggregates only the space prices (spaces-only total, matching
     the locked submit-total decision) — no additional services here.
+
+    Rate limited per-IP (PR#10, `settings.RATE_LIMIT_PRICE_PREVIEW`,
+    default `30/minute`) — flagged in the 4R review as the CHEAPEST
+    amplification vector of the three public endpoints: it needs no valid
+    folio at all, only tenant/space/date/time.
     """
     tenant_id = UUID(str(settings.DEFAULT_TENANT_ID))
 
@@ -284,7 +296,9 @@ def _is_duplicate_folio_integrity_error(exc: IntegrityError) -> bool:
     response_model=QuoteRequestSubmitResponse,
     status_code=status.HTTP_201_CREATED,
 )
+@limiter.limit(lambda: settings.RATE_LIMIT_SUBMIT)
 def submit_quote_request(
+    request: Request,
     payload: str = Form(...),
     files: list[UploadFile] = File(default=[]),
 ):
@@ -297,6 +311,10 @@ def submit_quote_request(
       3. RN-004 revalidation BEFORE opening the write tx -> 403 / 503
       4. Availability pre-check -> write files -> create_public_quote_request -> commit
       5. Map SlotNotAvailableError/IntegrityError/NoPricingRuleError/ValueError -> 409/422
+
+    Rate limited per-IP (PR#10, `settings.RATE_LIMIT_SUBMIT`, default
+    `5/minute`) — the strictest of the three public limits: this is the
+    only one that sends an email and writes files to disk.
     """
     # 1. Parse + validate payload.
     try:

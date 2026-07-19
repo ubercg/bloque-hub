@@ -1,3 +1,5 @@
+import os
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -96,6 +98,36 @@ class Settings(BaseSettings):
     SPEI_REFERENCE_PREFIX: str = "BLOQUE"
     SPEI_SECRET_KEY: str = "test_secret"
     SPEI_BANCO: str = "Banco"
+
+    # Rate limiting (PR#10, REQ-012) — public endpoints are unauthenticated
+    # (no JWT) so they need per-IP throttling. `RATE_LIMIT_VALIDATE_FOLIO`,
+    # `RATE_LIMIT_PRICE_PREVIEW`, `RATE_LIMIT_SUBMIT` use slowapi/`limits`
+    # syntax ("N/second|minute|hour|day"). Kept mutable (plain settings
+    # attributes, not frozen) so tests can monkeypatch a low limit for
+    # deterministic 429 assertions — see `app/core/rate_limit.py`, which
+    # reads them via a callable at request time (not decoration time).
+    RATE_LIMIT_VALIDATE_FOLIO: str = "20/minute"
+    RATE_LIMIT_PRICE_PREVIEW: str = "30/minute"  # cheapest amplification vector (no folio required)
+    RATE_LIMIT_SUBMIT: str = "5/minute"  # sends email + writes files
+
+    @property
+    def RATE_LIMIT_STORAGE_URI(self) -> str:
+        """Redis URI used by the rate limiter's storage backend.
+
+        Reuses the Celery/Redis instance already configured via
+        `CELERY_BROKER_URL`, but on a distinct logical DB (index 1 instead
+        of 0) so rate-limit counters never collide with Celery's broker
+        keys. Override with `RATE_LIMIT_REDIS_URL` env var if a dedicated
+        Redis instance/DB is preferred (e.g. isolated test DB).
+        """
+        override = os.environ.get("RATE_LIMIT_REDIS_URL")
+        if override:
+            return override
+        base = self.CELERY_BROKER_URL
+        head, _, tail = base.rpartition("/")
+        if head and tail.isdigit():
+            return f"{head}/1"
+        return base
 
 
 settings = Settings()

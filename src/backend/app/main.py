@@ -4,11 +4,19 @@ import logging
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 
 from app.core.config import settings
 
 # Middlewares
 from app.core.middleware import TenantMiddleware
+from app.core.rate_limit import (
+    default_rate_limit_state_middleware,
+    limiter,
+    rate_limit_exceeded_handler,
+)
 
 # Module routers
 from app.api.public import router as public_router
@@ -58,6 +66,15 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     app.add_middleware(TenantMiddleware)
+
+    # Rate limiting (PR#10, REQ-012): per-IP throttling on the public
+    # (no-JWT) `/api/public/quote-requests*` endpoints. See
+    # `app/core/rate_limit.py` for the key function (real client IP behind
+    # nginx) and fail-open behavior on Redis outage.
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+    app.add_middleware(BaseHTTPMiddleware, dispatch=default_rate_limit_state_middleware)
+    app.add_middleware(SlowAPIMiddleware)
 
     # ------------------------------------------------------------------ #
     # Routers

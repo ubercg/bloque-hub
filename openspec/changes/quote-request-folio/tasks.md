@@ -234,12 +234,32 @@ Each phase below is a reviewable work unit (work-unit-commits skill). Tests and 
 **Result**: 8/8 fixes applied with RED->GREEN TDD evidence. Full public suite (`test_public_quote_gate.py`, `test_public_quote_submit.py`, `test_public_quote_email.py`, `test_public_price_preview.py`, `test_public_service_atomicity.py`, `test_public_service_pricing.py`, `test_quote_wizard_schema.py`, `test_portal_gate_client.py`) = 62/62 green; new `test_email_service.py` = 2/2 green.
 
 **Tracked follow-ups (NOT fixed in this PR, blocking before public internet exposure):**
-- Rate limiting on public endpoints (no throttle exists yet on `/api/public/quote-requests*`).
-- Circuit-breaker/async handling for Portal calls (still synchronous, blocking request threads on Portal latency).
-- Deploy checks: confirm `DEBUG=False` and a `DEFAULT_TENANT_ID` startup assertion (fails fast if unset) before production deploy.
-- RISK-4 (task 0.3): real Portal contract for `GET /api/public/space-event-requests/access/{folio}` still unconfirmed — implementation proceeds against the assumed shape.
+- Rate limiting on public endpoints (no throttle exists yet on `/api/public/quote-requests*`). **-> Closed in Phase 12 / PR#10.**
+- Circuit-breaker/async handling for Portal calls (still synchronous, blocking request threads on Portal latency). Still open.
+- Deploy checks: confirm `DEBUG=False` and a `DEFAULT_TENANT_ID` startup assertion (fails fast if unset) before production deploy. Still open.
+- RISK-4 (task 0.3): real Portal contract for `GET /api/public/space-event-requests/access/{folio}` still unconfirmed — implementation proceeds against the assumed shape. Still open.
 
 *Depends on: Phase 4, Phase 5 (endpoints + email + portal client existed). Branch `feat/qrf-09-review-fixes`, child of `feat/qrf-08-servicios-enum` (feature-branch-chain).*
+
+---
+
+## Phase 12 — Rate limiting on public endpoints (PR #10, merge-to-main GATE)
+
+**Why:** the 4R review (Phase 11) found the three public endpoints completely unthrottled — a BLOCKER-severity risk before public internet exposure (email-bombing on submit, disk-fill via uploads, DB/Portal amplification via price-preview). This is the gate that must land before the tracker merges to `main`.
+
+- [x] 12.1 Add `slowapi` (Redis-backed via `limits`) to `requirements.txt`; wire `Limiter` into the app factory (`main.py`) with an exception handler returning a clean 429 JSON body (`{"reason": "RATE_LIMIT_EXCEEDED", "message": "..."}`).
+- [x] 12.2 `app/core/rate_limit.py::get_client_ip` — real client IP extraction behind nginx (`X-Forwarded-For` first hop -> `X-Real-IP` -> `request.client.host`). Confirmed `infra/nginx/nginx.conf` already sets both headers via `proxy_set_header` — no nginx.conf change needed.
+- [x] 12.3 Config-driven per-IP limits: `RATE_LIMIT_VALIDATE_FOLIO` (20/minute), `RATE_LIMIT_PRICE_PREVIEW` (30/minute), `RATE_LIMIT_SUBMIT` (5/minute) in `core/config.py`; `RATE_LIMIT_STORAGE_URI` reuses `CELERY_BROKER_URL`'s Redis on a distinct DB index (1 vs. Celery's 0).
+- [x] 12.4 Fail-open on Redis outage (`swallow_errors=True`); found + fixed a slowapi gotcha where `request.state.view_rate_limit` is read unconditionally after route dispatch (decorator + `SlowAPIMiddleware`), crashing the fail-open path with a 500 — added `default_rate_limit_state_middleware` to pre-seed the attribute.
+- [x] 12.5 Tests (Strict TDD): `tests/test_public_rate_limit.py` (10 tests) — 429 on exceed per endpoint, success under-limit, XFF-based bucket isolation, fail-open on simulated storage error, `get_client_ip` unit tests. Global autouse fixture `_reset_rate_limit_storage` added to `tests/conftest.py` (flushes limiter Redis storage before/after every test in the whole suite — needed because `TestClient` shares a `"testclient"` bucket without XFF headers).
+- [x] 12.6 Full public suite regression check (`test_public_quote_gate.py`, `test_public_quote_submit.py`, `test_public_quote_email.py`, `test_public_price_preview.py`, `test_public_service_atomicity.py`, `test_public_service_pricing.py`, `test_quote_wizard_schema.py`, `test_portal_gate_client.py`, `test_email_service.py`) — 64/64 green, no regressions.
+- [x] 12.7 Living docs: `API-025-PublicQuoteRequests.md` §6 (rate limiting section), `BIT-012-Estatus-REQ-012.md` (PR#10 entry).
+
+**Result**: 10/10 new tests green (RED->GREEN TDD evidence), 64/64 full public suite green (no regressions). Rate limiting merge-to-main gate is satisfied.
+
+**Still open (NOT covered by this PR):** circuit-breaker/async handling for Portal calls; deploy checks (`DEBUG=False`, `DEFAULT_TENANT_ID` startup assertion); RISK-4 real Portal contract confirmation; `conftest.py` DB-truncation between test runs (pre-existing test-infra debt, unrelated to rate limiting — confirmed via RLS `app.current_tenant` errors in ~38 pre-existing failures across the full backend suite).
+
+*Depends on: Phase 4 (endpoints existed), Phase 11 (4R review flagged this). Branch `feat/qrf-10-rate-limiting`, child of `feat/qrf-09-review-fixes` (feature-branch-chain, LAST slice).*
 
 ---
 

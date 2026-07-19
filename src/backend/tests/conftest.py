@@ -48,6 +48,27 @@ def unique_portal_folio() -> str:
     )
 
 
+@pytest.fixture(autouse=True)
+def _reset_rate_limit_storage():
+    """Reset the rate-limit Redis storage before/after every test.
+
+    PR#10 (REQ-012) added per-IP rate limiting to the public endpoints
+    (`app/core/rate_limit.py`). `TestClient` requests default to a shared
+    `request.client.host == "testclient"` bucket (no `X-Forwarded-For`
+    header), and the limiter's Redis storage is NOT flushed between pytest
+    invocations by default — without this reset, counters from one test
+    (or a previous test run) leak into the next and trip the low submit
+    limit (5/minute) on otherwise-unrelated tests that call the public
+    endpoints a handful of times. Autouse + session-independent so no test
+    file needs to opt in explicitly.
+    """
+    from app.core.rate_limit import limiter
+
+    limiter.reset()
+    yield
+    limiter.reset()
+
+
 @pytest.fixture
 def client():
     return TestClient(app)
