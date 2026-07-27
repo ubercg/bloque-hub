@@ -83,9 +83,13 @@ export default function SolicitudWizardPage() {
             ? isStepServiciosValid(stepServiciosFields)
             : false; // step 5 submits inline via StepResumen, no "Siguiente"
 
+  const shellMaxWidth = currentStep === 2 ? 'max-w-5xl' : 'max-w-2xl';
+
   return (
     <div className="min-h-screen bg-gray-50 px-4 py-10">
-      <div className="max-w-2xl mx-auto bg-white rounded-xl shadow-sm border border-gray-200 p-8">
+      <div
+        className={`${shellMaxWidth} mx-auto bg-white rounded-xl shadow-sm border border-gray-200 p-6 sm:p-8`}
+      >
         <ol className="flex items-center justify-between mb-8">
           {STEP_LABELS.map((label, idx) => {
             const stepNumber = idx + 1;

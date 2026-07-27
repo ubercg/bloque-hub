@@ -15,10 +15,12 @@ fallback price (design §2.1, ADR-1).
 
 from __future__ import annotations
 
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, time
 from datetime import date as date_
 from decimal import Decimal
+from typing import Protocol, Sequence
 from uuid import UUID
 
 from sqlalchemy.orm import Session
@@ -33,7 +35,8 @@ from app.modules.crm.models import (
 )
 from app.modules.crm.schemas import PublicQuoteRequestCreate
 from app.modules.inventory.services import apply_soft_hold_for_quote
-from app.modules.pricing.services import calculate_price
+from app.modules.pricing.models import PricingRule
+from app.modules.pricing.services import NoPricingRuleError, get_pricing_rule_by_space
 
 
 @dataclass(frozen=True)
@@ -47,6 +50,13 @@ class WizardDocumentMeta:
     original_filename: str
 
 
+class _PricedSlot(Protocol):
+    space_id: UUID
+    fecha: date_
+    hora_inicio: time
+    hora_fin: time
+
+
 def _duration_hours(hora_inicio: time, hora_fin: time, fecha: date_) -> Decimal:
     """Compute item duration in hours as a Decimal, matching calculate_price's
     expected type (design §2.1 — the corrected pricing call)."""
@@ -54,6 +64,121 @@ def _duration_hours(hora_inicio: time, hora_fin: time, fecha: date_) -> Decimal:
     end = datetime.combine(fecha, hora_fin)
     secs = (end - start).total_seconds()
     return Decimal(str(secs / 3600.0)).quantize(Decimal("0.01"))
+
+
+def _time_to_minutes(t: time) -> int:
+    return t.hour * 60 + t.minute
+
+
+def _allocate_totals(total: Decimal, weights: Sequence[Decimal]) -> list[Decimal]:
+    """Split `total` across `weights` (hours), last slot absorbs rounding."""
+    if not weights:
+        return []
+    sum_w = sum(weights, Decimal("0"))
+    if sum_w <= 0:
+        return [Decimal("0.00") for _ in weights]
+    out: list[Decimal] = []
+    acc = Decimal("0.00")
+    last = len(weights) - 1
+    for i, w in enumerate(weights):
+        if i == last:
+            out.append((total - acc).quantize(Decimal("0.01")))
+        else:
+            part = (total * w / sum_w).quantize(Decimal("0.01"))
+            out.append(part)
+            acc += part
+    return out
+
+
+def _package_price_for_duration(duration_hours: Decimal, rule: PricingRule) -> Decimal:
+    """Package decomposition matching Detalle de Espacios / confirm-summary.
+
+    Greedy: N×12h packs, then N×6h packs, remainder × extra_hour_rate.
+    Differs from `calculate_hybrid_price` (tier jump: ≤6→base_6h, ≤12→base_12h),
+    which made a 7h block jump to the 12h package and made each lone 1h slot
+    cost base_6h — both wrong vs the catalog table the wizard shows.
+    """
+    remaining = Decimal(duration_hours)
+    if remaining <= 0:
+        raise ValueError("Duration hours must be > 0")
+
+    total = Decimal("0.00")
+    if rule.base_12h > 0:
+        n12 = int(remaining // Decimal("12"))
+        if n12:
+            total += Decimal(n12) * rule.base_12h
+            remaining -= Decimal(n12) * Decimal("12")
+    if rule.base_6h > 0:
+        n6 = int(remaining // Decimal("6"))
+        if n6:
+            total += Decimal(n6) * rule.base_6h
+            remaining -= Decimal(n6) * Decimal("6")
+    if remaining > 0:
+        total += (remaining * rule.extra_hour_rate).quantize(Decimal("0.01"))
+    return total.quantize(Decimal("0.01"))
+
+
+def price_wizard_items(
+    items: Sequence[_PricedSlot],
+    tenant_id: UUID,
+    db: Session,
+) -> list[Decimal]:
+    """Price wizard slots applying package rules to contiguous blocks.
+
+    Inventory soft-holds stay per 1h slot, but catalog tariffs are packages
+    (12h / 6h / hourly remainder). Contiguous slots on the same space+date are
+    merged, priced once with that decomposition, then allocated back
+    proportionally so bandeja, Detalle de Espacios and submit stay aligned.
+    """
+    n = len(items)
+    prices = [Decimal("0.00")] * n
+    if n == 0:
+        return prices
+
+    by_space_date: dict[tuple[UUID, date_], list[int]] = defaultdict(list)
+    for i, item in enumerate(items):
+        by_space_date[(item.space_id, item.fecha)].append(i)
+
+    for (space_id, fecha), indices in by_space_date.items():
+        rule = get_pricing_rule_by_space(db, tenant_id, space_id, fecha)
+        if not rule:
+            raise NoPricingRuleError(
+                f"No pricing rule for space {space_id} on {fecha}"
+            )
+
+        indices.sort(
+            key=lambda i: (
+                _time_to_minutes(items[i].hora_inicio),
+                _time_to_minutes(items[i].hora_fin),
+            )
+        )
+
+        blocks: list[list[int]] = []
+        current = [indices[0]]
+        for idx in indices[1:]:
+            prev = items[current[-1]]
+            cur = items[idx]
+            if _time_to_minutes(cur.hora_inicio) == _time_to_minutes(prev.hora_fin):
+                current.append(idx)
+            else:
+                blocks.append(current)
+                current = [idx]
+        blocks.append(current)
+
+        for block in blocks:
+            first = items[block[0]]
+            last = items[block[-1]]
+            duration = _duration_hours(first.hora_inicio, last.hora_fin, fecha)
+            block_price = _package_price_for_duration(duration, rule)
+            weights = [
+                _duration_hours(items[i].hora_inicio, items[i].hora_fin, fecha)
+                for i in block
+            ]
+            allocated = _allocate_totals(block_price, weights)
+            for i, price in zip(block, allocated):
+                prices[i] = price
+
+    return prices
 
 
 def create_public_quote_request(
@@ -91,17 +216,9 @@ def create_public_quote_request(
 
     # Pricing FIRST (correct types), so a NoPricingRuleError aborts before any
     # further persistence beyond the Lead (caller rolls back the whole tx).
-    item_prices: list[Decimal] = []
-    for item in payload.items:
-        duration_hours = _duration_hours(item.hora_inicio, item.hora_fin, item.fecha)
-        breakdown = calculate_price(
-            space_id=item.space_id,
-            duration_hours=duration_hours,
-            tenant_id=tenant_id,
-            target_date=item.fecha,
-            db=db,
-        )
-        item_prices.append(breakdown.total_price)
+    # Contiguous same-space/same-date slots are merged for package tariffs
+    # (base_6h / base_12h), then allocated back per QuoteItem row.
+    item_prices = price_wizard_items(payload.items, tenant_id, db)
 
     total = sum(item_prices, Decimal("0.00"))
 

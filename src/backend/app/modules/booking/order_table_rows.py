@@ -441,6 +441,61 @@ def _slot_duration_hours_res(hora_inicio: time, hora_fin: time) -> Decimal:
     return (Decimal(diff) / Decimal(60)).quantize(Decimal("0.01"))
 
 
+def build_order_context_from_cart(
+    db: Session,
+    tenant_id: UUID,
+    cart: list[CartItem],
+    space_fallback_hourly: dict[UUID, float],
+    *,
+    discount_code: str | None = None,
+) -> tuple[list[OrderTableRow], int, float, str | None, float]:
+    """
+    Detalle de Espacios + descuento opcional (código string) para wizard / PDF sin Reservation.
+
+    Retorna: rows, subtotal (int), discount_total (float), discount_code (optional), grand_total (float).
+    Si el código es inválido, el PDF/contexto se genera sin descuento (no lanza).
+    """
+    if not cart:
+        return [], 0, 0.0, None, 0.0
+
+    ref_date = min(it.fecha for it in cart)
+    pricing_by_space: dict[UUID, CatalogPrices] = {}
+    for sid in {it.space_id for it in cart}:
+        pricing_by_space[sid] = catalog_prices_for_space(
+            db, tenant_id, sid, ref_date, space_fallback_hourly.get(sid, 0.0)
+        )
+
+    rows = build_order_table_rows(cart, pricing_by_space)
+    subtotal = sum(r.total for r in rows)
+    subtotal_dec = Decimal(str(subtotal))
+
+    applied_code: str | None = None
+    discount_total = Decimal("0.00")
+    raw = (discount_code or "").strip()
+    if raw:
+        from app.modules.discounts.services import (
+            DiscountValidationError,
+            validate_code_for_subtotal,
+        )
+
+        try:
+            dc, amount, _total = validate_code_for_subtotal(
+                db=db,
+                tenant_id=tenant_id,
+                code=raw,
+                subtotal=subtotal_dec,
+                user_id=None,
+            )
+            applied_code = dc.code
+            discount_total = amount
+        except DiscountValidationError:
+            pass
+
+    discount_f = float(discount_total.quantize(Decimal("0.01")))
+    grand_total = max(0.0, float(subtotal_dec) - discount_f)
+    return rows, subtotal, discount_f, applied_code, grand_total
+
+
 def build_precotizacion_order_context(
     db: Session,
     tenant_id: UUID,

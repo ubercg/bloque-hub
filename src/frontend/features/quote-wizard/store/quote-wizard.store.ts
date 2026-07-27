@@ -36,6 +36,9 @@ export interface QuoteWizardState {
 
   // Step 2 — Espacio / fecha / cotización (multi-item)
   items: WizardItem[];
+  /** Optional discount from Detalle de Espacios (advisory; commercial confirms). */
+  discountCode: string | null;
+  discountAmount: number;
 
   // Step 3 — Solicitante y documentos
   nombreCompleto: string;
@@ -76,6 +79,10 @@ export interface QuoteWizardState {
   setStep: (step: WizardStep) => void;
   addItem: (item: WizardItem) => void;
   removeItem: (index: number) => void;
+  /** Remove by space+fecha+horario (stable across reorders). */
+  removeItemBySlot: (item: Pick<WizardItem, 'spaceId' | 'fecha' | 'horaInicio' | 'horaFin'>) => void;
+  /** Replace all Step-2 items (e.g. after contiguous package reprice). */
+  setItems: (items: WizardItem[]) => void;
   toggleServicioApoyo: (servicio: string) => void;
   goNext: () => void;
   goBack: () => void;
@@ -96,6 +103,8 @@ const initialState = {
   habraPrensa: false,
 
   items: [] as WizardItem[],
+  discountCode: null as string | null,
+  discountAmount: 0,
 
   nombreCompleto: '',
   cargoPuesto: '',
@@ -138,10 +147,36 @@ export const useQuoteWizardStore = create<QuoteWizardState>((set) => ({
 
   setStep: (step) => set({ currentStep: step }),
 
-  addItem: (item) => set((state) => ({ items: [...state.items, item] })),
+  addItem: (item) =>
+    set((state) => {
+      const exists = state.items.some(
+        (i) =>
+          i.spaceId === item.spaceId &&
+          i.fecha === item.fecha &&
+          i.horaInicio === item.horaInicio &&
+          i.horaFin === item.horaFin
+      );
+      if (exists) return state;
+      return { items: [...state.items, item] };
+    }),
 
   removeItem: (index) =>
     set((state) => ({ items: state.items.filter((_, i) => i !== index) })),
+
+  removeItemBySlot: (slot) =>
+    set((state) => ({
+      items: state.items.filter(
+        (i) =>
+          !(
+            i.spaceId === slot.spaceId &&
+            i.fecha === slot.fecha &&
+            i.horaInicio === slot.horaInicio &&
+            i.horaFin === slot.horaFin
+          )
+      ),
+    })),
+
+  setItems: (items) => set({ items }),
 
   toggleServicioApoyo: (servicio) =>
     set((state) => ({

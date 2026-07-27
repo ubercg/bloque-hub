@@ -109,6 +109,8 @@ class Settings(BaseSettings):
     RATE_LIMIT_VALIDATE_FOLIO: str = "20/minute"
     RATE_LIMIT_PRICE_PREVIEW: str = "30/minute"  # cheapest amplification vector (no folio required)
     RATE_LIMIT_SUBMIT: str = "5/minute"  # sends email + writes files
+    RATE_LIMIT_VALIDATE_DISCOUNT: str = "20/minute"  # public wizard discount preview
+    RATE_LIMIT_PRECOTIZACION_PDF: str = "10/minute"  # WeasyPrint PDF — heavier than price-preview
 
     @property
     def RATE_LIMIT_STORAGE_URI(self) -> str:

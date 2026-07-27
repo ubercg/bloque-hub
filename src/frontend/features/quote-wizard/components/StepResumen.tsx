@@ -13,10 +13,12 @@ import apiClient from '@/lib/http/apiClient';
 
 import { LEGAL_AVISO_PRIVACIDAD_URL, LEGAL_REGLAMENTO_URL } from '../constants';
 import { useQuoteWizardStore } from '../store/quote-wizard.store';
+import { SpaceOrderDetail } from './SpaceOrderDetail';
 
 interface SpaceOption {
   id: string;
   name: string;
+  precio_por_hora: number;
 }
 
 const DOCUMENTS_BUCKET_KEY = 'adjuntos';
@@ -31,6 +33,13 @@ const DUPLICATE_FOLIO_MESSAGE = 'Ya existe una solicitud registrada con este fol
 const VALIDATION_ERROR_MESSAGE = 'Revisa los datos capturados: algunos campos no son válidos.';
 const GENERIC_ERROR_MESSAGE = 'Ocurrió un error al enviar tu solicitud. Intenta de nuevo.';
 
+function normalizeTime(t: string): string {
+  // Accept "HH:MM" or "HH:MM:SS" for API time fields.
+  const parts = t.split(':');
+  if (parts.length >= 2) return `${parts[0].padStart(2, '0')}:${parts[1].padStart(2, '0')}:00`;
+  return t;
+}
+
 export function StepResumen() {
   const router = useRouter();
   const state = useQuoteWizardStore((s) => s);
@@ -38,6 +47,8 @@ export function StepResumen() {
 
   const [spaces, setSpaces] = useState<SpaceOption[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [pdfLoading, setPdfLoading] = useState(false);
+  const [pdfError, setPdfError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -55,13 +66,55 @@ export function StepResumen() {
     };
   }, []);
 
-  const spaceName = (spaceId: string) => spaces.find((s) => s.id === spaceId)?.name ?? spaceId;
-  const itemsTotal = state.items.reduce((acc, item) => acc + (item.cotizacionCalculada ?? 0), 0);
   const documentFiles = Array.isArray(state.documents[DOCUMENTS_BUCKET_KEY])
     ? (state.documents[DOCUMENTS_BUCKET_KEY] as File[])
     : [];
 
   const canSubmit = state.aceptaInfoCorrecta && state.aceptaReglamento && !isSubmitting;
+
+  const handleDownloadPrecotizacion = async () => {
+    if (state.items.length === 0) {
+      setPdfError('Agrega al menos un espacio para descargar la precotización.');
+      return;
+    }
+    setPdfLoading(true);
+    setPdfError(null);
+    try {
+      const eventName =
+        state.tipoEvento === 'Otro' && state.nombreEvento
+          ? state.nombreEvento
+          : state.tipoEvento || 'Solicitud de cotización';
+      const res = await apiClient.post(
+        '/public/quote-requests/precotizacion.pdf',
+        {
+          items: state.items.map((item) => ({
+            space_id: item.spaceId,
+            fecha: item.fecha,
+            hora_inicio: normalizeTime(item.horaInicio),
+            hora_fin: normalizeTime(item.horaFin),
+          })),
+          discount_code: state.discountCode || null,
+          client_name: state.nombreCompleto || '',
+          client_email: state.correoInstitucional || '',
+          event_name: eventName,
+          document_ref: state.folio || 'borrador',
+          asistentes_estimados: state.asistentesEstimados || null,
+        },
+        { responseType: 'blob' }
+      );
+      const blob = new Blob([res.data], { type: 'application/pdf' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `precotizacion-${state.folio || 'borrador'}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      setPdfError('No se pudo descargar la precotización. Intenta de nuevo.');
+    } finally {
+      setPdfLoading(false);
+    }
+  };
 
   const handleSubmit = async () => {
     if (!canSubmit) return;
@@ -168,19 +221,45 @@ export function StepResumen() {
         </dl>
       </section>
 
-      <section className="border border-gray-200 rounded-lg p-4">
-        <h3 className="text-sm font-semibold text-gray-900 mb-2">Espacios</h3>
-        <ul className="text-sm text-gray-700 space-y-1">
-          {state.items.map((item, idx) => (
-            <li key={`${item.spaceId}-${idx}`}>
-              {spaceName(item.spaceId)} — {item.fecha} {item.horaInicio}-{item.horaFin}
-              {typeof item.cotizacionCalculada === 'number' && (
-                <span className="text-gray-500"> · ${item.cotizacionCalculada.toFixed(2)}</span>
-              )}
-            </li>
-          ))}
-        </ul>
-        <p className="text-sm font-medium text-gray-900 mt-2">Total preliminar: ${itemsTotal.toFixed(2)}</p>
+      <section className="flex flex-col gap-3">
+        <h3 className="text-sm font-semibold text-gray-900">Espacios</h3>
+        {state.items.length > 0 ? (
+          <>
+            <SpaceOrderDetail
+              items={state.items}
+              spaces={spaces}
+              appliedDiscountCode={state.discountCode}
+              discountAmount={state.discountAmount}
+              onDiscountApplied={(code, amount) => {
+                setField('discountCode', code);
+                setField('discountAmount', amount);
+              }}
+            />
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-xs text-gray-500">
+                Descarga la precotización con el mismo formato del portal (incluye descuento si
+                aplica).
+              </p>
+              <button
+                type="button"
+                onClick={handleDownloadPrecotizacion}
+                disabled={pdfLoading}
+                className="inline-flex items-center justify-center px-4 py-2 rounded-lg border border-gray-300 bg-white text-sm font-medium text-gray-800 hover:bg-gray-50 disabled:opacity-50"
+              >
+                {pdfLoading ? 'Generando PDF...' : 'Descargar precotización (PDF)'}
+              </button>
+            </div>
+            {pdfError && (
+              <p role="alert" className="text-sm text-red-600">
+                {pdfError}
+              </p>
+            )}
+          </>
+        ) : (
+          <p className="text-sm text-gray-500 border border-gray-200 rounded-lg p-4">
+            No hay espacios seleccionados.
+          </p>
+        )}
       </section>
 
       <section className="border border-gray-200 rounded-lg p-4">

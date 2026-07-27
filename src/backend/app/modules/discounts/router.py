@@ -50,9 +50,9 @@ def validate_discount_code(
         discount_code, discount_amount, total = validate_code_for_subtotal(
             db=db,
             tenant_id=tenant_id,
-            user_id=user_id,
             code=code,
             subtotal=subtotal,
+            user_id=user_id,
         )
         return DiscountValidateResponse(
             valid=True,

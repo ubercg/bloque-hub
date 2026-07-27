@@ -11,6 +11,7 @@ export { StepSolicitante } from './components/StepSolicitante';
 export { StepServicios } from './components/StepServicios';
 export { StepResumen } from './components/StepResumen';
 export { DocumentUpload } from './components/DocumentUpload';
+export { SpaceOrderDetail } from './components/SpaceOrderDetail';
 
 export {
   isStepEventoValid,

@@ -8,8 +8,8 @@ from pathlib import Path
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile, status
-from fastapi.responses import FileResponse
-from pydantic import BaseModel, ValidationError
+from fastapi.responses import FileResponse, Response
+from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy.exc import IntegrityError
 
 from datetime import date, time
@@ -19,8 +19,8 @@ from app.core.rate_limit import limiter
 from app.db.session import get_db_context
 from app.modules.crm.public_service import (
     WizardDocumentMeta,
-    _duration_hours,
     create_public_quote_request,
+    price_wizard_items,
 )
 from app.modules.crm.schemas import PublicQuoteRequestCreate
 from app.modules.identity.models import Tenant
@@ -32,7 +32,7 @@ from app.modules.notifications.email_service import send_email
 from app.modules.notifications.templating import render
 from app.modules.portal_gate import client as portal_gate_client
 from app.modules.portal_gate.client import PortalFolioStatus, PortalUnavailableError, is_valid_folio_format
-from app.modules.pricing.services import NoPricingRuleError, calculate_price
+from app.modules.pricing.services import NoPricingRuleError
 from app.modules.reservation_documents.services import (
     _ALLOWED_MIME_NORMALIZED,
     _ext_for_mime,
@@ -203,9 +203,13 @@ def preview_quote_request_price(request: Request, payload: PricePreviewRequest):
     endpoint lets Step 2 render `cotizacionCalculada` before submit.
 
     The authoritative price is ALWAYS recomputed server-side at submit
-    (`create_public_quote_request` -> `calculate_price`, same correct-types
-    call as this endpoint uses) — this preview never persists anything and
-    is not trusted for the final total.
+    (`create_public_quote_request` -> `price_wizard_items` / `calculate_price`)
+    — this preview never persists anything and is not trusted for the final
+    total.
+
+    Contiguous slots on the same space+date are merged before pricing so the
+    hybrid package tariff (base_6h / base_12h / extra_hour) matches Detalle de
+    Espacios; per-item prices in the response are the allocated share.
 
     `total` aggregates only the space prices (spaces-only total, matching
     the locked submit-total decision) — no additional services here.
@@ -219,27 +223,17 @@ def preview_quote_request_price(request: Request, payload: PricePreviewRequest):
 
     with get_db_context(tenant_id=str(tenant_id), role=None) as db:
         try:
-            results = []
-            for item in payload.items:
-                duration_hours = _duration_hours(
-                    item.hora_inicio, item.hora_fin, item.fecha
-                )
-                breakdown = calculate_price(
+            item_prices = price_wizard_items(payload.items, tenant_id, db)
+            results = [
+                PricePreviewItemResult(
                     space_id=item.space_id,
-                    duration_hours=duration_hours,
-                    tenant_id=tenant_id,
-                    target_date=item.fecha,
-                    db=db,
+                    fecha=item.fecha,
+                    hora_inicio=item.hora_inicio,
+                    hora_fin=item.hora_fin,
+                    price=float(price),
                 )
-                results.append(
-                    PricePreviewItemResult(
-                        space_id=item.space_id,
-                        fecha=item.fecha,
-                        hora_inicio=item.hora_inicio,
-                        hora_fin=item.hora_fin,
-                        price=float(breakdown.total_price),
-                    )
-                )
+                for item, price in zip(payload.items, item_prices)
+            ]
         except NoPricingRuleError:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -253,6 +247,178 @@ def preview_quote_request_price(request: Request, payload: PricePreviewRequest):
 
     total = sum((item.price for item in results), 0.0)
     return PricePreviewResponse(items=results, total=total)
+
+
+# ----- Public precotización PDF (REQ-012 wizard Step 5, anonymous) ----------
+
+
+class PrecotizacionPdfItem(BaseModel):
+    space_id: UUID
+    fecha: date
+    hora_inicio: time
+    hora_fin: time
+
+
+class PrecotizacionPdfRequest(BaseModel):
+    items: list[PrecotizacionPdfItem] = Field(..., min_length=1)
+    discount_code: str | None = None
+    client_name: str = ""
+    client_email: str = ""
+    event_name: str = "Solicitud de cotización"
+    document_ref: str = "borrador"
+    asistentes_estimados: int | None = None
+
+
+@router.post("/public/quote-requests/precotizacion.pdf")
+@limiter.limit(lambda: settings.RATE_LIMIT_PRECOTIZACION_PDF)
+def download_wizard_precotizacion_pdf(request: Request, payload: PrecotizacionPdfRequest):
+    """Advisory PDF for wizard Step 5 — same template as portal precotización.
+
+    No JWT. Does not persist. Recomputes Detalle de Espacios + optional discount
+    from `discount_code`. Rate-limited (WeasyPrint is relatively expensive).
+    """
+    from app.modules.booking.order_table_rows import CartItem
+    from app.modules.booking.precotizacion_pdf import generate_cart_precotizacion_pdf_bytes
+    from app.modules.inventory.models import Space
+
+    if not settings.DEFAULT_TENANT_ID:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"reason": "DEFAULT_TENANT_UNSET"},
+        )
+
+    tenant_id = UUID(str(settings.DEFAULT_TENANT_ID))
+
+    with get_db_context(tenant_id=str(tenant_id), role=None) as db:
+        sids = {it.space_id for it in payload.items}
+        spaces = db.query(Space).filter(Space.id.in_(sids), Space.tenant_id == tenant_id).all()
+        names = {s.id: s.name for s in spaces}
+        missing = sids - set(names)
+        if missing:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={"reason": "UNKNOWN_SPACE", "message": "Uno o más espacios no existen."},
+            )
+
+        cart = [
+            CartItem(
+                space_id=it.space_id,
+                space_name=names[it.space_id],
+                fecha=it.fecha,
+                hora_inicio=it.hora_inicio.strftime("%H:%M"),
+                hora_fin=it.hora_fin.strftime("%H:%M"),
+                precio=0,
+            )
+            for it in payload.items
+        ]
+
+        try:
+            pdf_bytes = generate_cart_precotizacion_pdf_bytes(
+                db,
+                tenant_id,
+                cart,
+                client_name=(payload.client_name or "").strip() or "—",
+                client_email=(payload.client_email or "").strip() or "—",
+                event_name=(payload.event_name or "").strip() or "Solicitud de cotización",
+                document_ref=(payload.document_ref or "").strip() or "borrador",
+                discount_code=payload.discount_code,
+                aforo_personas=payload.asistentes_estimados,
+            )
+        except Exception:
+            logger.exception("Failed to generate wizard precotizacion PDF")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail={"reason": "PDF_GENERATION_FAILED", "message": "No se pudo generar el PDF."},
+            )
+
+    safe_ref = "".join(c if c.isalnum() or c in "-_" else "-" for c in (payload.document_ref or "borrador"))[:48]
+    filename = f"precotizacion-{safe_ref or 'borrador'}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+# ----- Public discount preview (REQ-012 wizard Step 2, anonymous) ------------
+
+
+class PublicDiscountValidateRequest(BaseModel):
+    code: str
+    subtotal: float
+
+
+class PublicDiscountValidateResponse(BaseModel):
+    valid: bool
+    code: str
+    discount_code_id: UUID | None = None
+    discount_type: str | None = None
+    discount_value: float | None = None
+    discount_amount: float
+    subtotal: float
+    total: float
+    reason: str | None = None
+
+
+@router.post(
+    "/public/quote-requests/validate-discount",
+    response_model=PublicDiscountValidateResponse,
+)
+@limiter.limit(lambda: settings.RATE_LIMIT_VALIDATE_DISCOUNT)
+def validate_public_discount_code(request: Request, payload: PublicDiscountValidateRequest):
+    """Advisory discount preview for the anonymous quote wizard.
+
+    No JWT. Uses DEFAULT_TENANT_ID (same as price-preview). Does not consume
+    usage / does not persist — submit may re-validate later. Skips
+    single_use_per_user (no authenticated user). Rate-limited per IP.
+    """
+    from decimal import Decimal
+
+    from app.modules.discounts.services import (
+        DiscountValidationError,
+        normalize_discount_code,
+        validate_code_for_subtotal,
+    )
+
+    if not settings.DEFAULT_TENANT_ID:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"reason": "DEFAULT_TENANT_UNSET"},
+        )
+
+    tenant_id = UUID(str(settings.DEFAULT_TENANT_ID))
+    subtotal = Decimal(str(payload.subtotal)).quantize(Decimal("0.01"))
+    code = normalize_discount_code(payload.code)
+
+    with get_db_context(tenant_id=str(tenant_id), role=None) as db:
+        try:
+            discount_code, discount_amount, total = validate_code_for_subtotal(
+                db=db,
+                tenant_id=tenant_id,
+                code=code,
+                subtotal=subtotal,
+                user_id=None,
+            )
+            return PublicDiscountValidateResponse(
+                valid=True,
+                code=discount_code.code,
+                discount_code_id=discount_code.id,
+                discount_type=str(discount_code.discount_type),
+                discount_value=float(discount_code.discount_value),
+                discount_amount=float(discount_amount),
+                subtotal=float(subtotal),
+                total=float(total),
+                reason=None,
+            )
+        except DiscountValidationError as exc:
+            return PublicDiscountValidateResponse(
+                valid=False,
+                code=code,
+                discount_amount=0.0,
+                subtotal=float(subtotal),
+                total=float(subtotal),
+                reason=exc.reason,
+            )
 
 
 def _wizard_documents_storage_dir() -> Path:

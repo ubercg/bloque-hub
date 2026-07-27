@@ -14,10 +14,10 @@ import pytest
 
 from app.core.config import settings
 from app.db.session import get_db_context
-from app.modules.crm.public_service import _duration_hours
+from app.modules.crm.public_service import _duration_hours, _package_price_for_duration
 from app.modules.inventory.models import Space
 from app.modules.pricing.models import PricingRule
-from app.modules.pricing.services import calculate_price
+from app.modules.pricing.services import get_pricing_rule_by_space
 
 
 def _make_space(db_super, tenant_id, suffix: str) -> Space:
@@ -84,17 +84,13 @@ class TestPublicPricePreview:
         duration_hours = _duration_hours(time(10, 0, 0), time(12, 0, 0), day)
 
         with get_db_context(tenant_id=str(tenant_a.id), role=None) as db:
-            breakdown = calculate_price(
-                space_id=space.id,
-                duration_hours=duration_hours,
-                tenant_id=tenant_a.id,
-                target_date=day,
-                db=db,
-            )
+            rule = get_pricing_rule_by_space(db, tenant_a.id, space.id, day)
+            assert rule is not None
+            expected = _package_price_for_duration(duration_hours, rule)
 
         assert len(body["items"]) == 1
-        assert Decimal(str(body["items"][0]["price"])) == breakdown.total_price
-        assert Decimal(str(body["total"])) == breakdown.total_price
+        assert Decimal(str(body["items"][0]["price"])) == expected
+        assert Decimal(str(body["total"])) == expected
 
     def test_multi_item_aggregate_is_sum(self, client, monkeypatch, tenant_a, db_super):
         _set_default_tenant(monkeypatch, tenant_a.id)
@@ -147,3 +143,32 @@ class TestPublicPricePreview:
         )
 
         assert response.status_code == 200
+
+    def test_contiguous_slots_merge_for_package_tariff(
+        self, client, monkeypatch, tenant_a, db_super
+    ):
+        _set_default_tenant(monkeypatch, tenant_a.id)
+        space = _make_space(db_super, tenant_a.id, "contig")
+        _make_pricing_rule(db_super, tenant_a.id, space.id)
+        day = date.today() + timedelta(days=74)
+        slots = [
+            _item_dict(space.id, day, "10:00:00", "11:00:00"),
+            _item_dict(space.id, day, "11:00:00", "12:00:00"),
+            _item_dict(space.id, day, "12:00:00", "13:00:00"),
+            _item_dict(space.id, day, "13:00:00", "14:00:00"),
+            _item_dict(space.id, day, "14:00:00", "15:00:00"),
+            _item_dict(space.id, day, "15:00:00", "16:00:00"),
+            _item_dict(space.id, day, "16:00:00", "17:00:00"),
+        ]
+
+        response = client.post(
+            "/api/public/quote-requests/price-preview",
+            json={"items": slots},
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert len(body["items"]) == 7
+        # 7h → base_6h(100) + 1*extra(20) = 120, not 7*100
+        assert Decimal(str(body["total"])) == Decimal("120.00")
+        assert sum(Decimal(str(i["price"])) for i in body["items"]) == Decimal("120.00")

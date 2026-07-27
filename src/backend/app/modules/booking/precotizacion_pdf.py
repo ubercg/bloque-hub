@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import base64
-from datetime import datetime
+from datetime import date, datetime, time
 from pathlib import Path
 import urllib.request
 from uuid import UUID
@@ -15,6 +15,9 @@ from weasyprint import HTML
 from app.modules.booking.event_summary import space_name_map
 from app.modules.booking.models import Reservation
 from app.modules.booking.order_table_rows import (
+    CartItem,
+    OrderTableRow,
+    build_order_context_from_cart,
     build_precotizacion_order_context,
     format_mxn_display,
     format_qty_display,
@@ -69,99 +72,76 @@ def _frontend_public_file_uri(filename: str) -> str:
     return f"http://frontend:3000/{filename}"
 
 
-def generate_event_precotizacion_pdf_bytes(
-    db: Session,
-    tenant_id: UUID,
-    reservations: list[Reservation],
-    *,
-    client_name: str,
-    client_email: str,
-) -> bytes:
-    if not reservations:
-        raise ValueError("No reservations")
+def _fmt_mxn_space(n: float) -> str:
+    """Formato de moneda con espacio después del símbolo ($ 345,737)."""
+    return format_mxn_display(n).replace("$", "$ ")
 
-    first = reservations[0]
-    event_name = first.event_name or f"Evento {str(first.id)[:8].upper()}"
-    document_ref = str(first.group_event_id or first.id)
 
-    logo_bloque_uri = _asset_file_uri("logo-bloque.svg")
-    logo_footer_mun_uri = _asset_file_uri("logo-footer-munbloque.png")
-    # Encabezado y pie del PDF (assets del backend para WeasyPrint)
-    header_cot_uri = _asset_file_uri("header_cot.jpg")
-    footer_cot_uri = _asset_file_uri("footer_cot.jpg")
-
-    def _fmt_mxn_space(n: float) -> str:
-        """Formato de moneda con espacio después del símbolo ($ 345,737)."""
-        return format_mxn_display(n).replace("$", "$ ")
-
-    def _format_time_12h(t) -> str:
+def _format_time_12h(t: time | str) -> str:
+    if isinstance(t, str):
+        parts = t.strip().split(":")
+        hour24 = int(parts[0]) if parts else 0
+        minute = int(parts[1]) if len(parts) > 1 else 0
+    else:
         hour24 = int(getattr(t, "hour", 0))
         minute = int(getattr(t, "minute", 0))
-        ampm = "am" if hour24 < 12 else "pm"
-        hour12 = hour24 % 12
-        if hour12 == 0:
-            hour12 = 12
-        return f"{hour12}:{minute:02d} {ampm}"
+    ampm = "am" if hour24 < 12 else "pm"
+    hour12 = hour24 % 12
+    if hour12 == 0:
+        hour12 = 12
+    return f"{hour12}:{minute:02d} {ampm}"
 
-    def _render_tiempo_label(raw: str) -> str:
-        s = (raw or "").strip().lower()
-        if s == "por hora":
-            return "POR HORA"
-        if s.endswith("horas") and not s.startswith("por"):
-            # "6 horas" / "12 horas" -> "POR 6 HORAS"
-            return f"POR {s.replace(' horas', '').strip()} HORAS"
-        return (raw or "").strip().upper()
 
-    sids = {r.space_id for r in reservations}
-    names = space_name_map(db, tenant_id, sids)
-    fallback_hourly: dict[UUID, float] = {}
-    spaces = db.query(Space).filter(Space.id.in_(sids)).all()
-    for row in spaces:
-        fallback_hourly[row.id] = float(row.precio_por_hora or 0)
+def _render_tiempo_label(raw: str) -> str:
+    s = (raw or "").strip().lower()
+    if s == "por hora":
+        return "POR HORA"
+    if s.endswith("horas") and not s.startswith("por"):
+        # "6 horas" / "12 horas" -> "POR 6 HORAS"
+        return f"POR {s.replace(' horas', '').strip()} HORAS"
+    return (raw or "").strip().upper()
 
-    # Campos de cabecera (para que el PDF coincida con el formato del screenshot)
-    dates = sorted({r.fecha for r in reservations})
-    # Fecha mostrada junto a "Fecha:" = momento de generación/impresión del PDF (no fecha de reserva)
+
+def _render_precotizacion_pdf(
+    *,
+    event_name: str,
+    document_ref: str,
+    client_name: str,
+    client_email: str,
+    rows: list[OrderTableRow],
+    subtotal: int | float,
+    discount_total: float,
+    discount_code: str | None,
+    grand_total: float,
+    event_dates: list[date],
+    horario: str,
+    aforo_personas: int,
+) -> bytes:
     now = datetime.now()
     quote_fecha = format_fechas_evento_spanish([now.date()])
-    event_dates_span = format_fechas_evento_spanish(dates) if dates else "—"
+    event_dates_span = format_fechas_evento_spanish(event_dates) if event_dates else "—"
     event_dates_span = f"{event_dates_span}." if event_dates_span != "—" else "—"
 
-    horario = (
-        f"{_format_time_12h(first.hora_inicio)} a {_format_time_12h(first.hora_fin)}."
-        if first.hora_inicio and first.hora_fin
-        else "—"
-    )
-
-    # "Aforo" (fallback): usamos la capacidad máxima entre espacios del evento.
-    caps = [int(getattr(s, "capacidad_maxima", 0) or 0) for s in spaces]
-    aforo_personas = max(caps) if caps else 0
-
-    rows, subtotal, discount_total, discount_code, grand_total = build_precotizacion_order_context(
-        db,
-        tenant_id,
-        reservations,
-        names,
-        fallback_hourly,
-    )
-
-    order_rows_display = []
-    for row in rows:
-        order_rows_display.append(
-            {
-                "espacio": row.espacio,
-                "tiempo": _render_tiempo_label(row.tiempo_label),
-                "precio_unitario": _fmt_mxn_space(float(row.precio_unitario)),
-                "cantidad": format_qty_display(row.cantidad),
-                "total": _fmt_mxn_space(float(row.total)),
-            }
-        )
+    order_rows_display = [
+        {
+            "espacio": row.espacio,
+            "tiempo": _render_tiempo_label(row.tiempo_label),
+            "precio_unitario": _fmt_mxn_space(float(row.precio_unitario)),
+            "cantidad": format_qty_display(row.cantidad),
+            "total": _fmt_mxn_space(float(row.total)),
+        }
+        for row in rows
+    ]
 
     discount_percent = 0
     if subtotal and subtotal > 0 and discount_total and discount_total > 0:
-        # redondeo para mostrar "Descuento 75%" como en el screenshot
         discount_percent = int(round((float(discount_total) / float(subtotal)) * 100))
         discount_percent = max(0, min(100, discount_percent))
+
+    logo_bloque_uri = _asset_file_uri("logo-bloque.svg")
+    logo_footer_mun_uri = _asset_file_uri("logo-footer-munbloque.png")
+    header_cot_uri = _asset_file_uri("header_cot.jpg")
+    footer_cot_uri = _asset_file_uri("footer_cot.jpg")
 
     templates_dir = Path(__file__).parent / "templates"
     env = Environment(loader=FileSystemLoader(str(templates_dir)))
@@ -189,3 +169,116 @@ def generate_event_precotizacion_pdf_bytes(
         footer_cot_uri=footer_cot_uri,
     )
     return HTML(string=html).write_pdf()
+
+
+def generate_event_precotizacion_pdf_bytes(
+    db: Session,
+    tenant_id: UUID,
+    reservations: list[Reservation],
+    *,
+    client_name: str,
+    client_email: str,
+) -> bytes:
+    if not reservations:
+        raise ValueError("No reservations")
+
+    first = reservations[0]
+    event_name = first.event_name or f"Evento {str(first.id)[:8].upper()}"
+    document_ref = str(first.group_event_id or first.id)
+
+    sids = {r.space_id for r in reservations}
+    names = space_name_map(db, tenant_id, sids)
+    fallback_hourly: dict[UUID, float] = {}
+    spaces = db.query(Space).filter(Space.id.in_(sids)).all()
+    for row in spaces:
+        fallback_hourly[row.id] = float(row.precio_por_hora or 0)
+
+    dates = sorted({r.fecha for r in reservations})
+    horario = (
+        f"{_format_time_12h(first.hora_inicio)} a {_format_time_12h(first.hora_fin)}."
+        if first.hora_inicio and first.hora_fin
+        else "—"
+    )
+    caps = [int(getattr(s, "capacidad_maxima", 0) or 0) for s in spaces]
+    aforo_personas = max(caps) if caps else 0
+
+    rows, subtotal, discount_total, discount_code, grand_total = build_precotizacion_order_context(
+        db,
+        tenant_id,
+        reservations,
+        names,
+        fallback_hourly,
+    )
+
+    return _render_precotizacion_pdf(
+        event_name=event_name,
+        document_ref=document_ref,
+        client_name=client_name,
+        client_email=client_email,
+        rows=rows,
+        subtotal=subtotal,
+        discount_total=discount_total,
+        discount_code=discount_code,
+        grand_total=grand_total,
+        event_dates=dates,
+        horario=horario,
+        aforo_personas=aforo_personas,
+    )
+
+
+def generate_cart_precotizacion_pdf_bytes(
+    db: Session,
+    tenant_id: UUID,
+    cart: list[CartItem],
+    *,
+    client_name: str,
+    client_email: str,
+    event_name: str,
+    document_ref: str,
+    discount_code: str | None = None,
+    aforo_personas: int | None = None,
+) -> bytes:
+    """Precotización del wizard público (REQ-012) — mismo template que portal."""
+    if not cart:
+        raise ValueError("No cart items")
+
+    sids = {it.space_id for it in cart}
+    fallback_hourly: dict[UUID, float] = {}
+    spaces = db.query(Space).filter(Space.id.in_(sids)).all()
+    for row in spaces:
+        fallback_hourly[row.id] = float(row.precio_por_hora or 0)
+
+    dates = sorted({it.fecha for it in cart})
+    first = min(cart, key=lambda x: (x.fecha, x.hora_inicio))
+    last_same_day = max(
+        (it for it in cart if it.fecha == first.fecha),
+        key=lambda x: x.hora_fin,
+    )
+    horario = f"{_format_time_12h(first.hora_inicio)} a {_format_time_12h(last_same_day.hora_fin)}."
+
+    if aforo_personas is None:
+        caps = [int(getattr(s, "capacidad_maxima", 0) or 0) for s in spaces]
+        aforo_personas = max(caps) if caps else 0
+
+    rows, subtotal, discount_total, applied_code, grand_total = build_order_context_from_cart(
+        db,
+        tenant_id,
+        cart,
+        fallback_hourly,
+        discount_code=discount_code,
+    )
+
+    return _render_precotizacion_pdf(
+        event_name=event_name or "Solicitud de cotización",
+        document_ref=document_ref or "borrador",
+        client_name=client_name,
+        client_email=client_email,
+        rows=rows,
+        subtotal=subtotal,
+        discount_total=discount_total,
+        discount_code=applied_code,
+        grand_total=grand_total,
+        event_dates=dates,
+        horario=horario,
+        aforo_personas=int(aforo_personas or 0),
+    )

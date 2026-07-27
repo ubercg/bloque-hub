@@ -26,10 +26,18 @@ interface MonthAvailability {
   days: Record<string, CalendarDaySlot[]>;
 }
 
+interface SelectedSlotRef {
+  fecha: string;
+  hora_inicio: string;
+  hora_fin: string;
+}
+
 interface Props {
   spaceId: string;
   sedeQuery?: string;
   onSlotSelect?: (slot: CalendarDaySlot) => void;
+  /** Slots already in the cart/tray — highlighted in the day grid. */
+  selectedSlots?: SelectedSlotRef[];
 }
 
 const fetcher = (url: string) => apiClient.get(url).then((r) => r.data);
@@ -52,7 +60,16 @@ function formatTime(t: string): string {
   return t.slice(0, 5); // "09:00:00" → "09:00"
 }
 
-export default function AvailabilityCalendar({ spaceId, sedeQuery, onSlotSelect }: Props) {
+function slotRefKey(fecha: string, horaInicio: string, horaFin: string): string {
+  return `${fecha}|${formatTime(horaInicio)}|${formatTime(horaFin)}`;
+}
+
+export default function AvailabilityCalendar({
+  spaceId,
+  sedeQuery,
+  onSlotSelect,
+  selectedSlots = [],
+}: Props) {
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth() + 1); // 1-based
@@ -135,6 +152,11 @@ export default function AvailabilityCalendar({ spaceId, sedeQuery, onSlotSelect 
   };
 
   const daySlots = expandedDay && data?.days[expandedDay] ? data.days[expandedDay] : [];
+
+  const selectedKeys = useMemo(
+    () => new Set(selectedSlots.map((s) => slotRefKey(s.fecha, s.hora_inicio, s.hora_fin))),
+    [selectedSlots]
+  );
 
   return (
     <section aria-label="Calendario de disponibilidad" className="space-y-4">
@@ -243,18 +265,26 @@ export default function AvailabilityCalendar({ spaceId, sedeQuery, onSlotSelect 
             {daySlots.map((slot, i) => {
               const cfg = STATUS_COLORS[slot.status] || STATUS_COLORS.BLOCKED;
               const isAvailable = slot.status === 'AVAILABLE';
+              const isSelected = selectedKeys.has(
+                slotRefKey(slot.fecha, slot.hora_inicio, slot.hora_fin)
+              );
               return (
                 <button
                   key={i}
                   onClick={() => isAvailable && onSlotSelect?.(slot)}
                   disabled={!isAvailable}
+                  aria-pressed={isSelected}
                   className={`px-3 py-2 rounded-lg border text-sm font-medium transition
-                    ${cfg.bg} ${cfg.border}
+                    ${isSelected
+                      ? 'bg-blue-50 border-blue-500 text-blue-800 ring-2 ring-blue-400'
+                      : `${cfg.bg} ${cfg.border}`}
                     ${isAvailable
                       ? 'cursor-pointer hover:ring-2 hover:ring-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500'
                       : 'cursor-not-allowed opacity-70'}
                   `}
-                  aria-label={`${formatTime(slot.hora_inicio)} a ${formatTime(slot.hora_fin)}: ${cfg.label}`}
+                  aria-label={`${formatTime(slot.hora_inicio)} a ${formatTime(slot.hora_fin)}: ${
+                    isSelected ? 'seleccionado' : cfg.label
+                  }`}
                 >
                   {formatTime(slot.hora_inicio)} – {formatTime(slot.hora_fin)}
                 </button>
