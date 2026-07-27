@@ -3,7 +3,11 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from app.db.session import get_db
-from app.dependencies.auth import require_tenant, require_commercial_or_admin
+from app.dependencies.auth import (
+    optional_tenant_for_catalog,
+    require_tenant,
+    require_commercial_or_admin,
+)
 from app.modules.pricing.models import PricingRule
 from app.modules.pricing.schemas import PricingRuleCreate, PricingRuleUpdate, PricingRuleResponse, QuoteCalculationRequest, QuoteCalculationResponse
 from app.modules.pricing.services import create_pricing_rule, update_pricing_rule, get_pricing_rule_by_space, get_quote_for_space
@@ -12,9 +16,18 @@ router = APIRouter(prefix="/api", tags=["pricing"])
 
 @router.get("/pricing-rules", response_model=List[PricingRuleResponse])
 def list_pricing_rules(
+    tenant_info: tuple[uuid.UUID, str | None] = Depends(optional_tenant_for_catalog),
     db: Session = Depends(get_db),
-    tenant_info: tuple[uuid.UUID, str] = Depends(require_tenant)
 ):
+    """Read-only list: JWT tenant, or anonymous default/sede catalog tenant.
+
+    Needed by the public quote wizard Step 2 "Detalle de Espacios" table
+    (same package decomposition as booking/confirm) without requiring login.
+    Mutations remain gated by require_tenant + commercial/admin.
+
+    `optional_tenant_for_catalog` must run before `get_db` so request.state.tenant_id
+    is set for RLS (same pattern as GET /spaces).
+    """
     tenant_id, _ = tenant_info
     return db.query(PricingRule).filter(PricingRule.tenant_id == tenant_id).all()
 

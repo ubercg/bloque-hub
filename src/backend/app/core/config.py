@@ -1,3 +1,5 @@
+import os
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -73,13 +75,61 @@ class Settings(BaseSettings):
     SMTP_USER: str = ""
     SMTP_PASSWORD: str = ""
     SMTP_FROM: str = "noreply@bloque.example"
+    # PR#9 FIX 4: explicit socket timeout for SMTP connections — without it a
+    # hung/black-holed SMTP server can block the worker thread indefinitely.
+    SMTP_TIMEOUT_SECONDS: float = 10.0
     NOTIFICATION_COMMERCIAL_EMAIL: str = "comercial@bloque.example"
     PORTAL_BASE_URL: str = "https://portal.bloque.example"
+    # BLOQUE Portal gate (folio validation, RN-001/002/004) — REQ-012
+    # Distinct from PORTAL_BASE_URL (display/link URL); this is the API host.
+    PORTAL_API_BASE_URL: str = "https://portal.bloque.example"
+    PORTAL_RETRY_ATTEMPTS: int = 3  # 1 initial + 2 retries
+    PORTAL_API_KEY: str | None = None  # optional; header added only if set
+    # Storage for public wizard documents (quote_wizard_documents, Option B); filesystem
+    WIZARD_DOCUMENTS_STORAGE_PATH: str = "data/wizard_documents"
+    # PR#9 FIX 8: app-level cap on the number of files in one wizard submit —
+    # nginx-level limits alone are not defense in depth for the application.
+    MAX_WIZARD_FILES: int = 10
+    # Legal copy URLs (placeholders until legal supplies canonical docs) — RN-014 checkboxes
+    LEGAL_REGLAMENTO_URL: str = "https://bloque.example/reglamento"
+    LEGAL_AVISO_PRIVACIDAD_URL: str = "https://bloque.example/aviso-privacidad"
     # Datos SPEI para Pase de Caja (placeholder si no hay integración)
     SPEI_CLABE: str = ""
     SPEI_REFERENCE_PREFIX: str = "BLOQUE"
     SPEI_SECRET_KEY: str = "test_secret"
     SPEI_BANCO: str = "Banco"
+
+    # Rate limiting (PR#10, REQ-012) — public endpoints are unauthenticated
+    # (no JWT) so they need per-IP throttling. `RATE_LIMIT_VALIDATE_FOLIO`,
+    # `RATE_LIMIT_PRICE_PREVIEW`, `RATE_LIMIT_SUBMIT` use slowapi/`limits`
+    # syntax ("N/second|minute|hour|day"). Kept mutable (plain settings
+    # attributes, not frozen) so tests can monkeypatch a low limit for
+    # deterministic 429 assertions — see `app/core/rate_limit.py`, which
+    # reads them via a callable at request time (not decoration time).
+    RATE_LIMIT_VALIDATE_FOLIO: str = "20/minute"
+    RATE_LIMIT_PRICE_PREVIEW: str = "30/minute"  # cheapest amplification vector (no folio required)
+    RATE_LIMIT_SUBMIT: str = "5/minute"  # sends email + writes files
+    RATE_LIMIT_VALIDATE_DISCOUNT: str = "20/minute"  # public wizard discount preview
+    RATE_LIMIT_PRECOTIZACION_PDF: str = "10/minute"  # WeasyPrint PDF — heavier than price-preview
+
+    @property
+    def RATE_LIMIT_STORAGE_URI(self) -> str:
+        """Redis URI used by the rate limiter's storage backend.
+
+        Reuses the Celery/Redis instance already configured via
+        `CELERY_BROKER_URL`, but on a distinct logical DB (index 1 instead
+        of 0) so rate-limit counters never collide with Celery's broker
+        keys. Override with `RATE_LIMIT_REDIS_URL` env var if a dedicated
+        Redis instance/DB is preferred (e.g. isolated test DB).
+        """
+        override = os.environ.get("RATE_LIMIT_REDIS_URL")
+        if override:
+            return override
+        base = self.CELERY_BROKER_URL
+        head, _, tail = base.rpartition("/")
+        if head and tail.isdigit():
+            return f"{head}/1"
+        return base
 
 
 settings = Settings()

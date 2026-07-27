@@ -26,7 +26,9 @@ export function authMiddleware(request: NextRequest) {
     request.nextUrl.pathname.startsWith('/login') ||
     request.nextUrl.pathname.startsWith('/register');
   const isPublicPage =
-    request.nextUrl.pathname === '/' || request.nextUrl.pathname.startsWith('/catalog');
+    request.nextUrl.pathname === '/' ||
+    request.nextUrl.pathname.startsWith('/catalog') ||
+    request.nextUrl.pathname.startsWith('/solicitud'); // public wizard gate (REQ-012)
 
   if (!ctx.isValid) {
     if (ctx.reason === 'missing_token') {

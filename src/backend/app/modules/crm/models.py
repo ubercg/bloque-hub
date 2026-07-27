@@ -8,17 +8,19 @@ from datetime import date, datetime, time
 from typing import TYPE_CHECKING
 
 from sqlalchemy import (
+    Boolean,
     Date,
     DateTime,
     Enum,
     ForeignKey,
+    Integer,
     Numeric,
     String,
     Text,
     Time,
     func,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import ARRAY, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -55,6 +57,71 @@ class ServiceUnit(str, enum.Enum):
     MINUTO = "MINUTO"
     EVENTO = "EVENTO"
     M2 = "M2"
+
+
+# --- Public quote-request wizard enums (REQ-012). Values FROZEN from REQ-012 §4 —
+# do NOT invent/change; enum values are costly to migrate post-release. ---
+
+
+class TipoEvento(str, enum.Enum):
+    FIRMA_CONVENIO = "Firma de convenio"
+    CONFERENCIA = "Conferencia"
+    TALLER = "Taller / Workshop"
+    PRESENTACION = "Presentación"
+    NETWORKING = "Networking"
+    RUEDA_PRENSA = "Rueda de prensa"
+    REUNION_INSTITUCIONAL = "Reunión institucional"
+    OTRO = "Otro"
+
+
+class CaracterEvento(str, enum.Enum):
+    PUBLICO = "Público"
+    PRIVADO = "Privado"
+    GUBERNAMENTAL = "Gubernamental"
+    ACADEMICO = "Académico"
+    EMPRESARIAL = "Empresarial"
+
+
+class Sector(str, enum.Enum):
+    GOBIERNO_MUNICIPAL_ESTATAL_FEDERAL = "Gobierno municipal/estatal/federal"
+    UNIVERSIDAD_INSTITUCION_EDUCATIVA = "Universidad / Institución educativa"
+    EMPRESA_PRIVADA = "Empresa privada"
+    ORGANISMO_INTERNACIONAL = "Organismo internacional"
+    ORGANIZACION_CIVIL = "Organización civil"
+    STARTUP_EMPRENDIMIENTO = "Startup / Emprendimiento"
+    OTRO = "Otro"
+
+
+class ComoConociste(str, enum.Enum):
+    RECOMENDACION_OTRA_INSTITUCION = "Recomendación de otra institución"
+    REDES_SOCIALES = "Redes sociales"
+    SITIO_WEB_MUNICIPIO = "Sitio web del Municipio"
+    YA_REALIZADO_EVENTOS_ANTERIORES = "Ya he realizado eventos anteriores"
+    OTRO = "Otro"
+
+
+class MontajeRequerido(str, enum.Enum):
+    ESTANDAR_MESAS_SILLAS_U = "Estándar (mesas y sillas en U)"
+    TEATRO = "Teatro"
+    AULA = "Aula"
+    COCTEL = "Cóctel"
+    PROTOCOLAR_FIRMA = "Protocolar para firma"
+    SIN_MONTAJE = "Sin montaje"
+
+
+class ServicioApoyo(str, enum.Enum):
+    """Step 4 `servicios_apoyo` — FIXED closed multi-enum (REQ-012 §4.5), NOT a
+    dynamic catalog. Not priced (Quote.total = spaces only, PR#8 correction —
+    see design.md deviation note)."""
+
+    EQUIPO_AUDIOVISUAL = "Equipo audiovisual"
+    FOTOGRAFIA_OFICIAL = "Fotografía oficial"
+    TRANSMISION_EN_VIVO = "Transmisión en vivo"
+    COFFEE_BREAK = "Coffee break"
+    REGISTRO_DE_ASISTENTES = "Registro de asistentes"
+    TRADUCCION_SIMULTANEA = "Traducción simultánea"
+    ESTACIONAMIENTO_VIP = "Estacionamiento VIP"
+    DIFUSION_REDES_BLOQUE = "Difusión en redes de BLOQUE"
 
 
 class Lead(Base):
@@ -125,6 +192,14 @@ class Quote(Base):
     discount_amount: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)
     discount_justification: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # REQ-012: public quote-request wizard. NULL for internal COMMERCIAL quotes
+    # (created via create_quote); set for wizard-originated quotes. Uniqueness is
+    # enforced by a partial unique index (WHERE portal_folio IS NOT NULL) created
+    # in the migration, not by a column-level constraint, so multiple NULLs coexist.
+    portal_folio: Mapped[str | None] = mapped_column(
+        String(32), nullable=True, index=True
+    )
+
     lead: Mapped["Lead"] = relationship("Lead", back_populates="quotes")
     items: Mapped[list["QuoteItem"]] = relationship(
         "QuoteItem",
@@ -137,6 +212,15 @@ class Quote(Base):
     )
     contract: Mapped["Contract | None"] = relationship(
         "Contract", back_populates="quote", uselist=False, cascade="all, delete-orphan"
+    )
+    wizard_details: Mapped["QuoteWizardDetails | None"] = relationship(
+        "QuoteWizardDetails",
+        back_populates="quote",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
+    wizard_documents: Mapped[list["QuoteWizardDocuments"]] = relationship(
+        "QuoteWizardDocuments", back_populates="quote", cascade="all, delete-orphan"
     )
 
 
@@ -281,6 +365,128 @@ class DiscountRequest(Base):
     quote_item: Mapped["QuoteItem"] = relationship(
         "QuoteItem", back_populates="discount_requests"
     )
+
+
+class QuoteWizardDetails(Base):
+    """1:1 adjunct to Quote holding public wizard-only fields (REQ-012).
+
+    Kept separate from `quotes`/`leads` so the internal COMMERCIAL flow does not
+    grow wizard-only columns (design.md §1.3, ADR-3).
+    """
+
+    __tablename__ = "quote_wizard_details"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    quote_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("quotes.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,  # enforces 1:1
+    )
+
+    # --- Step 1: Evento ---
+    tipo_evento: Mapped[TipoEvento] = mapped_column(
+        Enum(TipoEvento, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+    )
+    nombre_evento: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    caracter_evento: Mapped[CaracterEvento] = mapped_column(
+        Enum(CaracterEvento, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+    )
+    descripcion_evento: Mapped[str | None] = mapped_column(Text, nullable=True)
+    asistentes_estimados: Mapped[int] = mapped_column(Integer, nullable=False)
+    habra_prensa: Mapped[bool] = mapped_column(Boolean, nullable=False)
+
+    # --- Step 3: Solicitante ---
+    nombre_completo: Mapped[str] = mapped_column(String(255), nullable=False)
+    cargo_puesto: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    institucion_organizacion: Mapped[str | None] = mapped_column(
+        String(255), nullable=True
+    )
+    sector: Mapped[Sector] = mapped_column(
+        Enum(Sector, values_callable=lambda x: [e.value for e in x]), nullable=False
+    )
+    sector_otro: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    correo_institucional: Mapped[str] = mapped_column(String(255), nullable=False)
+    telefono_contacto: Mapped[str] = mapped_column(String(64), nullable=False)
+    responsable_sitio_nombre: Mapped[str | None] = mapped_column(
+        String(255), nullable=True
+    )
+    responsable_sitio_telefono: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
+    )
+    como_conociste_bloque: Mapped[ComoConociste] = mapped_column(
+        Enum(ComoConociste, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+    )
+    como_conociste_otro: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    # --- Step 4: Servicios y montaje ---
+    # servicios_apoyo: fixed enum values stored as text[], NOT a catalog FK
+    # (REQ-012 §4.5 — PR#8 correction). Optional; not priced.
+    servicios_apoyo: Mapped[list[str]] = mapped_column(
+        ARRAY(String(64)), nullable=False, default=list, server_default="{}"
+    )
+    montaje_requerido: Mapped[MontajeRequerido] = mapped_column(
+        Enum(MontajeRequerido, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+    )
+    requerimientos_especiales: Mapped[str | None] = mapped_column(Text, nullable=True)
+    material_externo: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
+    material_externo_detalle: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # --- Step 5: Legal acceptances (RN-014) ---
+    acepta_info_correcta_autorizacion: Mapped[bool] = mapped_column(
+        Boolean, nullable=False
+    )
+    acepta_reglamento_y_aviso_privacidad: Mapped[bool] = mapped_column(
+        Boolean, nullable=False
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    quote: Mapped["Quote"] = relationship(
+        "Quote", back_populates="wizard_details", uselist=False
+    )
+
+
+class QuoteWizardDocuments(Base):
+    """1:N documents attached to a public wizard quote request (REQ-012, RN-015).
+
+    Option B from design.md §1.4: documents are persisted relationally, keyed by
+    quote_id (there is no reservation in the wizard flow).
+    """
+
+    __tablename__ = "quote_wizard_documents"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    quote_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("quotes.id", ondelete="CASCADE"), nullable=False
+    )
+    storage_key: Mapped[str] = mapped_column(String(512), nullable=False)
+    mime_type: Mapped[str] = mapped_column(String(128), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    original_filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    quote: Mapped["Quote"] = relationship("Quote", back_populates="wizard_documents")
 
 
 # Registrar AdditionalService en el mismo metadata que CRM (evita error de mapper).

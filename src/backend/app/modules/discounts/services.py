@@ -56,9 +56,9 @@ def get_code_for_tenant(db: Session, tenant_id: uuid.UUID, code: str) -> Discoun
 def validate_code_for_subtotal(
     db: Session,
     tenant_id: uuid.UUID,
-    user_id: uuid.UUID,
     code: str,
     subtotal: Decimal,
+    user_id: uuid.UUID | None = None,
 ) -> tuple[DiscountCode, Decimal, Decimal]:
     discount_code = get_code_for_tenant(db, tenant_id, code)
     if discount_code is None:
@@ -75,7 +75,9 @@ def validate_code_for_subtotal(
     if discount_code.min_subtotal is not None and subtotal < discount_code.min_subtotal:
         raise DiscountValidationError("DISCOUNT_CODE_MIN_SUBTOTAL_NOT_MET")
 
-    if discount_code.single_use_per_user:
+    # Per-user uniqueness only applies when we know the caller (authenticated
+    # booking). Public quote wizard validates anonymously — skip this gate.
+    if discount_code.single_use_per_user and user_id is not None:
         used_by_user = db.execute(
             select(DiscountCodeUsage.id).where(
                 DiscountCodeUsage.tenant_id == tenant_id,
