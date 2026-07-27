@@ -6,13 +6,13 @@
  * the wizard store now that the flow is complete.
  */
 
-import { useEffect } from 'react';
+import { Suspense, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { CheckCircle2 } from 'lucide-react';
 
 import { useQuoteWizardStore } from '@/features/quote-wizard';
 
-export default function SolicitudConfirmacionPage() {
+function SolicitudConfirmacionContent() {
   const searchParams = useSearchParams();
   const reset = useQuoteWizardStore((s) => s.reset);
 
@@ -51,5 +51,19 @@ export default function SolicitudConfirmacionPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function SolicitudConfirmacionPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
+          <p className="text-sm text-gray-500">Cargando confirmación...</p>
+        </div>
+      }
+    >
+      <SolicitudConfirmacionContent />
+    </Suspense>
   );
 }
