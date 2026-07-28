@@ -36,13 +36,13 @@ Dependency diagram (current position marked with 📍 once `sdd-apply` starts):
 ```
 Tracker: feat/req013-portal-hmac (draft, no-merge, → main only at the end)
   │
-  └─→ PR #1  feat/req013-01-signing-auth              (Slice A)   📍 start
+  └─→ PR #1  feat/req013-01-signing-auth              (Slice A)   ✅ done
         │
-        └─→ PR #2  feat/req013-02-portal-mock          (Slice E)
+        └─→ PR #2  feat/req013-02-portal-mock          (Slice E)   ✅ done
               │
-              └─→ PR #3  feat/req013-03-client-happy-path      (Slice B1 — closes RISK-4)
+              └─→ PR #3  feat/req013-03-client-happy-path      (Slice B1 — closes RISK-4)   ✅ done 📍
                     │
-                    └─→ PR #4  feat/req013-04-error-taxonomy-mapping  (Slice B2 — ATOMIC)
+                    └─→ PR #4  feat/req013-04-error-taxonomy-mapping  (Slice B2 — ATOMIC)   ← next
                           │
                           └─→ PR #5  feat/req013-05-lead-prefill       (Slice C)
                                 │
@@ -105,14 +105,14 @@ Tracker: feat/req013-portal-hmac (draft, no-merge, → main only at the end)
 
 **Independently shippable.** This slice alone restores the funnel even before the error taxonomy (B2) exists — the user's confirmed decision that B1 ships as its own release.
 
-- [ ] 3.1 Delete the old-contract assumptions in the **same commit** that replaces them (§10 row 6 — no skip-and-leave): remove `PORTAL_STATUS_FIELD`/`PORTAL_ELIGIBLE_STATUS_VALUE` root-status parsing, remove `_build_headers()`/`X-Api-Key`, remove the old `/api/public/space-event-requests/access/{folio}` URL construction.
-- [ ] 3.2 New route constant `PORTAL_INTEGRATION_PATH_TEMPLATE = "/api/integrations/bloque-hub/leads/{folio}/access"` — one builder, no fallback branch (§10 row 1: RN-002 forbids falling back to the public route on `401`, and this design has nowhere to fall back *to*).
-- [ ] 3.3 Wire `httpx.Client(auth=PortalHmacAuth(settings.PORTAL_HUB_API_KEY, settings.PORTAL_HUB_API_SECRET))` into the request loop — every call, including the happy path, is now signed.
-- [ ] 3.4 TDD: `test_eligible_folio_real_envelope` (`200` + `data.status = "quotation_in_progress"` → `ELIGIBLE`); `test_integration_route_is_called` (assert the URL equals the template, never the old public route — regression guard for §10 row 1).
-- [ ] 3.5 TDD: `test_three_headers_present_on_every_request` (`X-Bloque-Api-Key`/`Timestamp`/`Signature`).
-- [ ] 3.6 TDD: `test_missing_data_status_is_contract_violation` — a `200` with no `data.status` key resolves to `UNAVAILABLE` (**never** `NOT_ELIGIBLE`, RN-009) and logs `portal_gate.contract_violation` via `_shape_keys()` (top-level keys only, never values).
-- [ ] 3.7 Delete the old-contract tests in `test_portal_gate_client.py` in this same commit as their replacements (§10 row 6). A `401` in this slice may still fall through to the pre-existing "unexpected status → `PortalUnavailableError`" branch — the full error taxonomy is explicitly out of scope here and lands in B2; this is an accepted interim behavior, not a new regression (it matches the current PR#9-era handling of an unexpected status code).
-- [ ] 3.8 Full regression: existing timeout/5xx/429 retry-and-backoff logic (`PORTAL_RETRY_ATTEMPTS`, clamped 1–5) preserved unchanged.
+- [x] 3.1 Delete the old-contract assumptions in the **same commit** that replaces them (§10 row 6 — no skip-and-leave): remove `PORTAL_STATUS_FIELD`/`PORTAL_ELIGIBLE_STATUS_VALUE` root-status parsing, remove `_build_headers()`/`X-Api-Key`, remove the old `/api/public/space-event-requests/access/{folio}` URL construction.
+- [x] 3.2 New route constant `PORTAL_INTEGRATION_PATH_TEMPLATE = "/api/integrations/bloque-hub/leads/{folio}/access"` — one builder, no fallback branch (§10 row 1: RN-002 forbids falling back to the public route on `401`, and this design has nowhere to fall back *to*).
+- [x] 3.3 Wire `httpx.Client(auth=PortalHmacAuth(settings.PORTAL_HUB_API_KEY, settings.PORTAL_HUB_API_SECRET))` into the request loop — every call, including the happy path, is now signed.
+- [x] 3.4 TDD: `test_eligible_folio_real_envelope` (`200` + `data.status = "quotation_in_progress"` → `ELIGIBLE`); `test_integration_route_is_called` (assert the URL equals the template, never the old public route — regression guard for §10 row 1).
+- [x] 3.5 TDD: `test_three_headers_present_on_every_request` (`X-Bloque-Api-Key`/`Timestamp`/`Signature`).
+- [x] 3.6 TDD: `test_missing_data_status_is_contract_violation` — a `200` with no `data.status` key resolves to `UNAVAILABLE` (**never** `NOT_ELIGIBLE`, RN-009) and logs `portal_gate.contract_violation` via `_shape_keys()` (top-level keys only, never values).
+- [x] 3.7 Delete the old-contract tests in `test_portal_gate_client.py` in this same commit as their replacements (§10 row 6). A `401` in this slice may still fall through to the pre-existing "unexpected status → `PortalUnavailableError`" branch — the full error taxonomy is explicitly out of scope here and lands in B2; this is an accepted interim behavior, not a new regression (it matches the current PR#9-era handling of an unexpected status code).
+- [x] 3.8 Full regression: existing timeout/5xx/429 retry-and-backoff logic (`PORTAL_RETRY_ATTEMPTS`, clamped 1–5) preserved unchanged.
 
 *Depends on: Phase 1 (auth wiring), Phase 2 (local double must answer the new route). Blocks: Phase 4.*
 
