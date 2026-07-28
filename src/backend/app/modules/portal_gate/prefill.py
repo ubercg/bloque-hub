@@ -157,26 +157,25 @@ def map_lead_prefill(raw: Mapping[str, Any] | None, *, folio: str) -> LeadPrefil
         _log_degraded(folio, raw)
         return _EMPTY_PREFILL
     try:
-        # Alias order (live smoke 2026-07-28 against Portal real): Hub-shaped
-        # keys Portal already sends → local-double names → English synonyms.
-        # `space_id` / `ciudad` are never read (RN-015 / delivery #5).
+        # Alias order (REQ-013 §4.6, smoke 2026-07-28): Hub canonical first,
+        # then English synonyms Portal also sends in the same object.
+        # Deliberately NO local-double names (`nombre_solicitante` /
+        # `email_solicitante` / `telefono_solicitante` / `numero_invitados`) —
+        # those are not on the real contract; keeping them made the lying
+        # mock look correct. `space_id` / `ciudad` are never read (RN-015).
         notes = _first_str(raw, "comentarios", "requerimientos_especiales", "special_notes")
         return LeadPrefill(
-            nombre_completo=_first_str(
-                raw, "nombre_completo", "nombre_solicitante", "requestor_name"
-            ),
+            nombre_completo=_first_str(raw, "nombre_completo", "requestor_name"),
             cargo_puesto=_first_str(raw, "cargo_puesto", "position"),
             institucion_organizacion=_first_str(
                 raw, "institucion_organizacion", "institution"
             ),
             correo_institucional=_first_str(
-                raw, "correo_institucional", "email_solicitante", "contact_email"
+                raw, "correo_institucional", "contact_email"
             ),
-            telefono_contacto=_first_str(
-                raw, "telefono_contacto", "telefono_solicitante", "contact_phone"
-            ),
+            telefono_contacto=_first_str(raw, "telefono_contacto", "contact_phone"),
             asistentes_estimados=_first_int(
-                raw, "asistentes_estimados", "numero_invitados", "attendees"
+                raw, "asistentes_estimados", "attendees"
             ),
             fecha_tentativa=_first_str(raw, "fecha_tentativa", "date"),
             tipo_evento_sugerido=_first_str(

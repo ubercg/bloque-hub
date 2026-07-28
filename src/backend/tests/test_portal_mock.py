@@ -167,7 +167,20 @@ def test_valid_signature_returns_200_envelope(mock_server, portal_mock_module):
 
     payload = json.loads(body)
     assert payload["data"]["status"] == "quotation_in_progress"
-    assert payload["data"]["lead_prefill"]["nombre_solicitante"] == "Ana Torres"
+    prefill = payload["data"]["lead_prefill"]
+    # REQ-013 §4.6: Hub canonical + EN synonyms; obsolete double names absent.
+    assert prefill["nombre_completo"] == "Ana Torres"
+    assert prefill["requestor_name"] == "Ana Torres"
+    assert prefill["correo_institucional"] == "ana.torres@example.com"
+    assert prefill["contact_email"] == "ana.torres@example.com"
+    assert "nombre_solicitante" not in prefill
+    assert "email_solicitante" not in prefill
+    assert "telefono_solicitante" not in prefill
+    assert "numero_invitados" not in prefill
+    # Traps present so the mapper can prove it ignores them.
+    assert "ciudad" in prefill
+    assert "space_id" in prefill
+    assert prefill["space_id"] == "00000000-0000-4000-8000-000000000099"
 
 
 def test_unknown_api_key_rejected(mock_server, portal_mock_module):

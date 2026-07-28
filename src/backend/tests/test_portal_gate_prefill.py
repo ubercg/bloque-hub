@@ -1,14 +1,12 @@
 """Unit tests for `portal_gate/prefill.py` (REQ-013, design.md §6).
 
 Pure tests, no HTTP (design §12: "pure prefill.py tests first"). `raw` here
-is the shape `client.py` extracts from `body["data"]["lead_prefill"]` — the
-REAL Portal field names as fixed in `portal-mock.py` (Slice E, already
-shipped): `nombre_solicitante`, `email_solicitante`, `telefono_solicitante`,
-`numero_invitados`, `comentarios`, plus `fecha_tentativa`,
-`tipo_evento_sugerido`, `espacio_requerido`, `como_conociste_bloque`,
-`ciudad` verbatim. `cargo_puesto` / `institucion_organizacion` are read
-under their own Hub-shaped names since Portal's local double never sends
-them (best-effort — RN-013 tolerates absent keys identically to null ones).
+is the shape `client.py` extracts from `body["data"]["lead_prefill"]` —
+Portal-real key names per REQ-013 §4.6 (verified 2026-07-28 smoke): Hub
+canonical (`nombre_completo`, `correo_institucional`, …) plus English
+synonyms in the same object. The obsolete local-double names
+(`nombre_solicitante` / …) are NOT part of the contract and MUST NOT be
+read. `ciudad` / `space_id` are traps the mapper ignores (RN-015).
 """
 
 import dataclasses
@@ -28,31 +26,43 @@ from app.modules.portal_gate.prefill import (
 FOLIO = "BCE-20260715-172822-2973"
 
 _FULL_RAW = {
-    "nombre_solicitante": "Ana Torres",
+    "nombre_completo": "Ana Torres",
+    "requestor_name": "Ana Torres",
     "cargo_puesto": "Directora de Vinculación",
+    "position": "Directora de Vinculación",
     "institucion_organizacion": "Municipio de Querétaro",
-    "email_solicitante": "ana.torres@example.com",
-    "telefono_solicitante": "5512345678",
-    "numero_invitados": 150,
+    "institution": "Municipio de Querétaro",
+    "correo_institucional": "ana.torres@example.com",
+    "contact_email": "ana.torres@example.com",
+    "telefono_contacto": "5512345678",
+    "contact_phone": "5512345678",
+    "asistentes_estimados": 150,
+    "attendees": 150,
     "fecha_tentativa": "2026-08-20",
+    "date": "2026-08-20",
     "tipo_evento_sugerido": "boda",
+    "event_type": "boda",
     "espacio_requerido": "Salon Jacarandas",
     "comentarios": "Evento con requerimientos de sonido e iluminacion especial.",
+    "special_notes": "Evento con requerimientos de sonido e iluminacion especial.",
     "como_conociste_bloque": "redes_sociales",
+    "how_learned_bloque": "redes_sociales",
     "ciudad": "Queretaro",
+    "space_id": "00000000-0000-4000-8000-000000000099",
 }
 
 _ALL_NULL_RAW = {
-    "nombre_solicitante": None,
-    "email_solicitante": None,
-    "telefono_solicitante": None,
+    "nombre_completo": None,
+    "correo_institucional": None,
+    "telefono_contacto": None,
     "tipo_evento_sugerido": None,
     "fecha_tentativa": None,
     "espacio_requerido": None,
-    "numero_invitados": None,
+    "asistentes_estimados": None,
     "comentarios": None,
     "como_conociste_bloque": None,
     "ciudad": None,
+    "space_id": None,
 }
 
 
@@ -112,58 +122,36 @@ class TestMapLeadPrefillCompleteCase:
 
 class TestMapLeadPrefillPortalRealAliases:
     """Live Portal (2026-07-28) sends Hub-shaped keys + English synonyms in
-    the same object, and does NOT send the local-double names
-    (`nombre_solicitante` / `email_solicitante` / …). Prefill must read the
-    Hub names so Step 3 hydrates; `space_id` must still be ignored (RN-015).
+    the same object. Obsolete local-double names are NOT on the contract and
+    must not be load-bearing. `space_id` must still be ignored (RN-015).
     """
 
-    _PORTAL_REAL_SHAPE = {
-        "nombre_completo": "Ana Real",
-        "nombre_solicitante": None,  # absent-equivalent on real Portal
-        "requestor_name": "Ana Real",
-        "cargo_puesto": "director",
-        "position": "director",
-        "institucion_organizacion": "silvercorp",
-        "institution": "silvercorp",
-        "correo_institucional": "ana@example.com",
-        "email_solicitante": None,
-        "contact_email": "ana@example.com",
-        "telefono_contacto": "5511111111",
-        "telefono_solicitante": None,
-        "contact_phone": "5511111111",
-        "asistentes_estimados": 40,
-        "numero_invitados": None,
-        "attendees": 40,
-        "fecha_tentativa": "2026-07-30",
-        "date": "2026-07-30",
-        "tipo_evento_sugerido": None,
-        "event_type": None,
-        "espacio_requerido": "Auditorio",
-        "comentarios": "ninguno",
-        "special_notes": "ninguno",
-        "como_conociste_bloque": "recomendacion",
-        "how_learned_bloque": "recomendacion",
-        "ciudad": "Queretaro",
-        "space_id": "should-never-become-espacio",
-    }
-
     def test_hub_shaped_keys_hydrate_every_identity_field(self):
-        prefill = map_lead_prefill(self._PORTAL_REAL_SHAPE, folio=FOLIO)
-        assert prefill.nombre_completo == "Ana Real"
-        assert prefill.correo_institucional == "ana@example.com"
-        assert prefill.telefono_contacto == "5511111111"
-        assert prefill.asistentes_estimados == 40
-        assert prefill.cargo_puesto == "director"
-        assert prefill.institucion_organizacion == "silvercorp"
-        assert prefill.fecha_tentativa == "2026-07-30"
-        assert prefill.espacio_requerido == "Auditorio"
-        assert prefill.requerimientos_especiales == "ninguno"
-        assert prefill.como_conociste_bloque == "recomendacion"
+        prefill = map_lead_prefill(_FULL_RAW, folio=FOLIO)
+        assert prefill.nombre_completo == "Ana Torres"
+        assert prefill.correo_institucional == "ana.torres@example.com"
+        assert prefill.telefono_contacto == "5512345678"
+        assert prefill.asistentes_estimados == 150
+        assert prefill.cargo_puesto == "Directora de Vinculación"
+        assert prefill.institucion_organizacion == "Municipio de Querétaro"
+        assert prefill.fecha_tentativa == "2026-08-20"
+        assert prefill.espacio_requerido == "Salon Jacarandas"
+        assert (
+            prefill.requerimientos_especiales
+            == "Evento con requerimientos de sonido e iluminacion especial."
+        )
+        assert prefill.como_conociste_bloque == "redes_sociales"
 
     def test_space_id_never_becomes_espacio_requerido(self):
-        raw = {"space_id": "uuid-of-doom", "espacio_requerido": None}
+        raw = {
+            "space_id": "uuid-of-doom",
+            "espacio_requerido": None,
+            "ciudad": "Queretaro",
+        }
         prefill = map_lead_prefill(raw, folio=FOLIO)
         assert prefill.espacio_requerido is None
+        assert not hasattr(prefill, "ciudad")
+        assert not hasattr(prefill, "space_id")
 
     def test_english_only_payload_still_maps(self):
         raw = {
@@ -188,6 +176,24 @@ class TestMapLeadPrefillPortalRealAliases:
         assert prefill.cargo_puesto == "PM"
         assert prefill.fecha_tentativa == "2026-09-01"
 
+    def test_obsolete_double_names_alone_do_not_hydrate(self):
+        """Regression: the lying-mock key names must NOT be aliases.
+
+        If only `nombre_solicitante` / `email_solicitante` / … arrive, Step 3
+        stays empty — same failure mode as shipping against a lying double.
+        """
+        raw = {
+            "nombre_solicitante": "Should Not Appear",
+            "email_solicitante": "nope@example.com",
+            "telefono_solicitante": "5500000000",
+            "numero_invitados": 99,
+        }
+        prefill = map_lead_prefill(raw, folio=FOLIO)
+        assert prefill.nombre_completo is None
+        assert prefill.correo_institucional is None
+        assert prefill.telefono_contacto is None
+        assert prefill.asistentes_estimados is None
+
 
 class TestMapLeadPrefillNullAndAbsentKeys:
     def test_raw_none_degrades_to_all_none_silently(self, caplog):
@@ -205,10 +211,13 @@ class TestMapLeadPrefillNullAndAbsentKeys:
         assert not any(r.levelno >= logging.WARNING for r in caplog.records)
 
     def test_missing_keys_not_sent_by_portal_degrade_to_none(self, caplog):
-        """`cargo_puesto` / `institucion_organizacion` are absent from the
-        real portal-mock fixtures entirely (not even null) — RN-013 treats
-        an absent key identically to an explicit null, with no error."""
-        raw = dict(_ALL_NULL_RAW)  # no cargo_puesto / institucion_organizacion key at all
+        """Absent keys (not even null) degrade identically to explicit null
+        under RN-013 — no error, no raise."""
+        raw = {
+            "nombre_completo": None,
+            "correo_institucional": None,
+            # cargo_puesto / institucion_organizacion deliberately absent
+        }
 
         with caplog.at_level("WARNING"):
             prefill = map_lead_prefill(raw, folio=FOLIO)

@@ -8,6 +8,14 @@ of `signing.py`. The compose smoke (backend signs, this double verifies) is
 the proof the two readings agree; importing signing.py here would agree with
 it by construction and prove nothing.
 
+RN-019 fidelity covers MORE than auth: `lead_prefill` must use the same key
+names Portal real sends (REQ-013 §4.6, verified 2026-07-28 smoke). That is
+Hub-canonical keys PLUS English synonyms in the same object — NOT the old
+local-only names (`nombre_solicitante` / `email_solicitante` /
+`telefono_solicitante` / `numero_invitados`), which Portal does not send.
+Fixtures also emit `ciudad` and `space_id` so the mapper can prove it ignores
+them (RN-015 / delivery #5).
+
 This is a committed, permanent local double (RN-019) — not disposable. Do NOT
 delete this file. It is required for `docker compose up` to answer the real
 Portal integration route in local dev.
@@ -63,6 +71,56 @@ def _sign(secret: str, canonical: str) -> str:
     return base64.b64encode(digest).decode("ascii")
 
 
+def _lead_prefill(
+    *,
+    nombre: str | None,
+    correo: str | None,
+    telefono: str | None,
+    cargo: str | None,
+    institucion: str | None,
+    asistentes: int | None,
+    tipo: str | None,
+    fecha: str | None,
+    espacio: str | None,
+    comentarios: str | None,
+    como: str | None,
+    ciudad: str | None,
+    space_id: str | None,
+) -> dict:
+    """Portal-real shape: Hub canonical + English synonyms (+ traps).
+
+    Mirror of the 2026-07-28 connected-smoke payload (REQ-013 §4.6).
+    """
+    return {
+        # Hub canonical (§4.6)
+        "nombre_completo": nombre,
+        "correo_institucional": correo,
+        "telefono_contacto": telefono,
+        "cargo_puesto": cargo,
+        "institucion_organizacion": institucion,
+        "asistentes_estimados": asistentes,
+        "tipo_evento_sugerido": tipo,
+        "fecha_tentativa": fecha,
+        "espacio_requerido": espacio,
+        "comentarios": comentarios,
+        "como_conociste_bloque": como,
+        # English synonyms (same object, as Portal real)
+        "requestor_name": nombre,
+        "contact_email": correo,
+        "contact_phone": telefono,
+        "position": cargo,
+        "institution": institucion,
+        "attendees": asistentes,
+        "event_type": tipo,
+        "date": fecha,
+        "special_notes": comentarios,
+        "how_learned_bloque": como,
+        # Traps — mapper MUST ignore (RN-015 / delivery #5)
+        "ciudad": ciudad,
+        "space_id": space_id,
+    }
+
+
 # Fixtures: folio -> (http_status, body). All folios satisfy FOLIO_PATTERN
 # (^BCE-\d{8}-\d{6}-\d{4}$, see app.modules.portal_gate.client.FOLIO_PATTERN)
 # or the backend never calls out to begin with.
@@ -74,40 +132,48 @@ FIXTURES = {
             "data": {
                 "status": "quotation_in_progress",
                 "status_label": "En cotización",
-                "lead_prefill": {
-                    "nombre_solicitante": "Ana Torres",
-                    "email_solicitante": "ana.torres@example.com",
-                    "telefono_solicitante": "5512345678",
-                    "tipo_evento_sugerido": "boda",
-                    "fecha_tentativa": "2026-08-20",
-                    "espacio_requerido": "Salon Jacarandas",
-                    "numero_invitados": 150,
-                    "comentarios": "Evento con requerimientos de sonido e iluminacion especial.",
-                    "como_conociste_bloque": "redes_sociales",
-                    "ciudad": "Queretaro",
-                },
+                "lead_prefill": _lead_prefill(
+                    nombre="Ana Torres",
+                    correo="ana.torres@example.com",
+                    telefono="5512345678",
+                    cargo="Directora de Vinculación",
+                    institucion="Municipio de Querétaro",
+                    asistentes=150,
+                    tipo="boda",
+                    fecha="2026-08-20",
+                    espacio="Salon Jacarandas",
+                    comentarios=(
+                        "Evento con requerimientos de sonido e iluminacion especial."
+                    ),
+                    como="redes_sociales",
+                    ciudad="Queretaro",
+                    space_id="00000000-0000-4000-8000-000000000099",
+                ),
             }
         },
     ),
-    # Eligible, every optional lead_prefill key null.
+    # Eligible, every optional lead_prefill key null (traps still present).
     "BCE-20260716-091500-1010": (
         200,
         {
             "data": {
                 "status": "quotation_in_progress",
                 "status_label": "En cotización",
-                "lead_prefill": {
-                    "nombre_solicitante": None,
-                    "email_solicitante": None,
-                    "telefono_solicitante": None,
-                    "tipo_evento_sugerido": None,
-                    "fecha_tentativa": None,
-                    "espacio_requerido": None,
-                    "numero_invitados": None,
-                    "comentarios": None,
-                    "como_conociste_bloque": None,
-                    "ciudad": None,
-                },
+                "lead_prefill": _lead_prefill(
+                    nombre=None,
+                    correo=None,
+                    telefono=None,
+                    cargo=None,
+                    institucion=None,
+                    asistentes=None,
+                    tipo=None,
+                    fecha=None,
+                    espacio=None,
+                    comentarios=None,
+                    como=None,
+                    ciudad=None,
+                    space_id=None,
+                ),
             }
         },
     ),
@@ -118,18 +184,21 @@ FIXTURES = {
             "data": {
                 "status": "quotation_in_progress",
                 "status_label": "En cotización",
-                "lead_prefill": {
-                    "nombre_solicitante": "Luis Mendoza",
-                    "email_solicitante": "luis.mendoza@example.com",
-                    "telefono_solicitante": "5598765432",
-                    "tipo_evento_sugerido": "corporativo",
-                    "fecha_tentativa": "2026-09-05",
-                    "espacio_requerido": "Terraza Norte",
-                    "numero_invitados": 300,
-                    "comentarios": "Requerimiento especial extenso. " * 200,
-                    "como_conociste_bloque": "referido",
-                    "ciudad": "Queretaro",
-                },
+                "lead_prefill": _lead_prefill(
+                    nombre="Luis Mendoza",
+                    correo="luis.mendoza@example.com",
+                    telefono="5598765432",
+                    cargo=None,
+                    institucion=None,
+                    asistentes=300,
+                    tipo="corporativo",
+                    fecha="2026-09-05",
+                    espacio="Terraza Norte",
+                    comentarios="Requerimiento especial extenso. " * 200,
+                    como="referido",
+                    ciudad="Queretaro",
+                    space_id="trap-must-not-become-espacio",
+                ),
             }
         },
     ),
