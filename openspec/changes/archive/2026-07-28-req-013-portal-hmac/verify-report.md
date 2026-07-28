@@ -15,6 +15,13 @@ checks ran 2026-07-28; prefill key fidelity was corrected in `e49b23f` after the
 finding (see §3 addendum). Remaining before archive: **WARNING-1 (Sigao edge proxy)** and
 **RN-020 second credential pair if staging exists apart from prod**.
 
+> **Archive-time disposition (2026-07-28, same session):** archived anyway, per explicit
+> instruction from the orchestrator/user, as **shipped with known open operational items**. Both
+> WARNING-1 and RN-020 are operational (external-dependency) gaps, not code defects, and this
+> verify-report's own "not ready to archive yet" recommendation is a process default, not an
+> absolute block — the `sdd-archive` skill only hard-blocks on CRITICAL findings, and this report
+> has none. See the archive report for the explicit acknowledgment and rationale.
+
 ---
 
 ## 1. Test execution (real, not inferred)
@@ -195,7 +202,7 @@ All items below cite `file:line` or test name as evidence, independent of the Do
 > hydration**: the double emitted obsolete key names (`nombre_solicitante` / `email_solicitante` /
 > `telefono_solicitante` / `numero_invitados`) that Portal real does not send, while Portal real
 > sends Hub-canonical keys plus English synonyms in the same object (REQ-013 §4.6, verified on
-> folio `BCE-20260717-121058-4083`). RN-019 had been read as “HMAC fidelity”; payload key
+> folio `BCE-20260717-121058-4083`). RN-019 had been read as "HMAC fidelity"; payload key
 > fidelity was unspecified, so every prefill test could pass while Step 3 would arrive empty for
 > every real applicant — silent HU-03 failure, no error, no log.
 >
@@ -203,7 +210,7 @@ All items below cite `file:line` or test name as evidence, independent of the Do
 > 1. Connected smoke + against Portal real → `unlocked` + hydrated identity fields.
 > 2. Commit `e49b23f` — mock aligned to Hub+EN (+ `ciudad`/`space_id` traps); mapper reads only
 >    contract keys; `test_obsolete_double_names_alone_do_not_hydrate` prevents the lying-mock
->    aliases from returning as “compatibilidad”.
+>    aliases from returning as "compatibilidad".
 >
 > Do **not** treat the original 171-test green run alone as proof of Prefill hydration. The
 > conclusion (MET) stands; the backing evidence is the smoke + `e49b23f`, not that first suite.
@@ -237,7 +244,7 @@ All four "Pruebas" DoD rows — **MET**, evidenced by the 171-test REQ-013-scope
 
 As of `e49b23f` / tasks 7.4–7.5 marked done for the smoke gate: checked tasks correspond to real
 passing code and connected evidence. Remaining operational (not code) gaps: task **0.2** / WARNING-1
-(Sigao `proxy_intercept_errors`) and RN-020’s second pair if staging is a separate environment.
+(Sigao `proxy_intercept_errors`) and RN-020's second pair if staging is a separate environment.
 
 ---
 
@@ -290,7 +297,7 @@ since it's cheap and closes the loop completely.
 
 ## 6. Readiness for `sdd-archive`
 
-**Not ready to archive yet.** Code + connected smokes are closed. Two operational gates remain:
+**Not ready to archive yet [original assessment].** Code + connected smokes are closed. Two operational gates remain:
 
 1. **WARNING-1 — Sigao edge proxy** (`proxy_intercept_errors` / 502 body preservation). Only item
    with live risk today; does not depend on Portal credentials. Fallback still two lines if it
@@ -305,3 +312,9 @@ Also closed since the original verify pass:
 
 Recommend: `sdd-archive` only after Sigao confirmation and an honest RN-020 answer (second pair, or
 documented decision that staging is not a separate credential domain).
+
+> **Archive-time override (2026-07-28, same session as this verify pass):** archived anyway per
+> explicit orchestrator/user instruction, as shipped-with-known-open-operational-items. Neither
+> WARNING-1 nor RN-020 is a CRITICAL finding or a code defect; both require action outside this
+> repository (external edge-proxy confirmation, external credential provisioning). See the archive
+> report for full disposition.

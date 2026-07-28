@@ -5,6 +5,12 @@
 
 This is a delta spec: it describes what MUST be true of the system after this change is applied. Each Requirement has at least one Scenario in GIVEN/WHEN/THEN form; negative/edge scenarios are included per requirement where applicable.
 
+> **Archive note (2026-07-28):** this delta spec was merged into the baseline as two
+> domains — `openspec/specs/quote-gate-api/spec.md` (Portal gate + revalidation
+> requirements) and `openspec/specs/quote-request-submission/spec.md` (wizard-step
+> validation, pricing, persistence, email, documents). See the archive report for
+> the full split rationale and RISK-4 closure by `req-013-portal-hmac`.
+
 ---
 
 ## Requirement: Folio format validation (RN-017)
@@ -352,5 +358,5 @@ Step 3's document upload MUST retain the existing MIME/size/versioning rules alr
 ## Risks / Assumptions carried into spec
 
 - Legal copy URLs (Reglamento / Aviso de Privacidad) are env-configurable placeholders; the spec does not test their content, only that both checkboxes gate submission (RN-014).
-- Portal gate auth (API key/HMAC) is assumed not required for MVP per proposal's stated assumption; if added, scenarios above still hold since it is a config-driven header on the same client wrapper.
+- Portal gate auth (API key/HMAC) is assumed not required for MVP per proposal's stated assumption; if added, scenarios above still hold since it is a config-driven header on the same client wrapper. **RESOLVED (2026-07-28): false. `req-013-portal-hmac` made HMAC signing mandatory and closed this as RISK-4. See that change's archive report and the `portal-gate-integration` baseline domain.**
 - `status_post_envio` uses the existing default initial Quote status; no new state machine value is introduced or tested here beyond the `portal_folio` link.

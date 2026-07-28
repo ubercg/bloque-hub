@@ -23,9 +23,11 @@ Each phase below is a reviewable work unit (work-unit-commits skill). Tests and 
 
 - [x] 0.1 Confirm enum catalog values for `TipoEvento`, `CaracterEvento`, `Sector`, `ComoConociste`, `MontajeRequerido` against REQ-012/product before writing the migration (RISK-1, design §9). Freeze values in a short note in this tasks file or the PR description — enum values are costly to change post-migration.
   - **FROZEN (REQ-012 §4)**: `TipoEvento` = Firma de convenio, Conferencia, Taller / Workshop, Presentación, Networking, Rueda de prensa, Reunión institucional, Otro. `CaracterEvento` = Público, Privado, Gubernamental, Académico, Empresarial. `Sector` = Gobierno municipal/estatal/federal, Universidad / Institución educativa, Empresa privada, Organismo internacional, Organización civil, Startup / Emprendimiento, Otro. `ComoConociste` = Recomendación de otra institución, Redes sociales, Sitio web del Municipio, Ya he realizado eventos anteriores, Otro. `MontajeRequerido` = Estándar (mesas y sillas en U), Teatro, Aula, Cóctel, Protocolar para firma, Sin montaje. These supersede design.md §1.3's placeholder values and are implemented verbatim in migration `q1r2s3t4u5v6`.
-- [ ] 0.2 Confirm HTTP mapping (409 vs 422) and UX copy for `NoPricingRuleError` on submit (RISK-3, design §9 / §4.4 table).
+- [x] 0.2 Confirm HTTP mapping (409 vs 422) and UX copy for `NoPricingRuleError` on submit (RISK-3, design §9 / §4.4 table).
+  - **Archive-time reconciliation (2026-07-28):** stale checkbox — task 3.2's own note says this was deferred to PR #4 ("out of scope for this PR ... PR #4 owns the HTTP mapping decision"), and task 4.2 step 5 (checked) confirms the resolution shipped: "Catch `SlotNotAvailableError`/`IntegrityError`/`NoPricingRuleError`/`ValueError` → rollback → map to 409/422 per error table (design §4.4)." No apply-progress/verify-report artifact exists for this change to cite per the strict gate; reconciled directly from tasks.md's own internal evidence (3.2 + 4.2) at archive time.
 - [ ] 0.3 Confirm exact Portal `200` response body shape (status field name/values) for `GET /api/public/space-event-requests/access/{folio}` (RISK-4). If unavailable, proceed with the design's assumed shape and flag as a follow-up.
   - **Still unconfirmed as of Phase 2 (PR #2).** Proceeded per this task's own fallback instruction: implemented against the assumed shape (`{"status": "quotation_in_progress"}`), centralized in `PORTAL_STATUS_FIELD`/`PORTAL_ELIGIBLE_STATUS_VALUE` constants at the top of `modules/portal_gate/client.py` for a one-line swap once the real contract is confirmed.
+  - **Archive-time note (2026-07-28): CLOSED by `req-013-portal-hmac`.** The real Portal contract was confirmed and implemented (integration route, mandatory HMAC, `data.status`). This checkbox is intentionally left unchecked here as an accurate historical record of REQ-012's own scope (it never resolved this itself) — closure is recorded in `req-013-portal-hmac`'s archive report and in the `portal-gate-integration` baseline spec.
 
 *Depends on: nothing. Blocks: Phase 1 (migration needs 0.1), Phase 3 (needs 0.2), Phase 2 (needs 0.3).*
 
@@ -195,11 +197,16 @@ Each phase below is a reviewable work unit (work-unit-commits skill). Tests and 
 
 ## Phase 9 — Living documentation (mandatory, do continuously + final pass)
 
-- [ ] 9.1 `30-API/` — new file documenting `/api/public/quote-requests/validate-folio` and `/api/public/quote-requests` (method, payload incl. multipart shape, responses, status codes) per CLAUDE.md convention (frontmatter `id: API-0XX`, `status: active`).
-- [ ] 9.2 `20-Arquitectura/ARQ-001-Decisiones-Core.md` — confirm/finalize entries for `Quote.portal_folio`, `quote_wizard_details`, `quote_wizard_documents` (should already be partially done in Phase 1; verify completeness once endpoints/service land).
-- [ ] 9.3 `10-Requerimientos/REQ-012-Solicitud-Cotizacion-Folio-Portal.md` — tick DoD checkboxes (`[ ]` → `[x]`) for every RN satisfied by this change.
-- [ ] 9.4 `50-Bitacora/BIT-XXX-Estatus-REQ-012.md` — new bitácora entry: what was implemented, local smoke-test results, pending items (e.g. RISK-1 enum freeze confirmation, deferred Portal state sync-back).
-- [ ] 9.5 `40-Ejecucion/TSK-XXX-*.md` — set `status: done` in frontmatter for any corresponding execution task files.
+- [x] 9.1 `30-API/` — new file documenting `/api/public/quote-requests/validate-folio` and `/api/public/quote-requests` (method, payload incl. multipart shape, responses, status codes) per CLAUDE.md convention (frontmatter `id: API-0XX`, `status: active`).
+  - **Archive-time reconciliation (2026-07-28):** stale checkbox — `30-API/API-025-PublicQuoteRequests.md` exists in the vault and is referenced as updated by task 10.4 and 12.7 (both checked). Verified present via direct vault read at archive time.
+- [x] 9.2 `20-Arquitectura/ARQ-001-Decisiones-Core.md` — confirm/finalize entries for `Quote.portal_folio`, `quote_wizard_details`, `quote_wizard_documents` (should already be partially done in Phase 1; verify completeness once endpoints/service land).
+  - **Archive-time reconciliation (2026-07-28):** stale checkbox — task 10.4 (checked) explicitly records "ARQ-001-Decisiones-Core.md §15.6 ... updated."
+- [x] 9.3 `10-Requerimientos/REQ-012-Solicitud-Cotizacion-Folio-Portal.md` — tick DoD checkboxes (`[ ]` → `[x]`) for every RN satisfied by this change.
+  - **Archive-time reconciliation (2026-07-28):** stale checkbox — verified via direct vault read at archive time: all 19 DoD checkboxes in REQ-012 §7 are `[x]`. (Note: the REQ file's frontmatter `status:` still reads `draft` — flagged as a separate, minor living-doc gap in the archive report; not a task-gate blocker.)
+- [x] 9.4 `50-Bitacora/BIT-XXX-Estatus-REQ-012.md` — new bitácora entry: what was implemented, local smoke-test results, pending items (e.g. RISK-1 enum freeze confirmation, deferred Portal state sync-back).
+  - **Archive-time reconciliation (2026-07-28):** stale checkbox — `50-Bitacora/BIT-012-Estatus-REQ-012.md` exists in the vault and is referenced as updated by tasks 10.4 and 12.7.
+- [x] 9.5 `40-Ejecucion/TSK-XXX-*.md` — set `status: done` in frontmatter for any corresponding execution task files.
+  - **Archive-time reconciliation (2026-07-28):** no `TSK-*` execution files were ever created for this change in `40-Ejecucion/` (confirmed via glob at archive time — zero matches) — this change was tracked entirely through the SDD `tasks.md` artifact instead. Vacuously satisfied: "any corresponding execution task files" — none exist.
 
 *Depends on: relevant phase completion; do incrementally per phase, finalize at the end. Non-negotiable per CLAUDE.md.*
 
@@ -237,7 +244,7 @@ Each phase below is a reviewable work unit (work-unit-commits skill). Tests and 
 - Rate limiting on public endpoints (no throttle exists yet on `/api/public/quote-requests*`). **-> Closed in Phase 12 / PR#10.**
 - Circuit-breaker/async handling for Portal calls (still synchronous, blocking request threads on Portal latency). Still open.
 - Deploy checks: confirm `DEBUG=False` and a `DEFAULT_TENANT_ID` startup assertion (fails fast if unset) before production deploy. Still open.
-- RISK-4 (task 0.3): real Portal contract for `GET /api/public/space-event-requests/access/{folio}` still unconfirmed — implementation proceeds against the assumed shape. Still open.
+- RISK-4 (task 0.3): real Portal contract for `GET /api/public/space-event-requests/access/{folio}` still unconfirmed — implementation proceeds against the assumed shape. Still open. **Closed by `req-013-portal-hmac`.**
 
 *Depends on: Phase 4, Phase 5 (endpoints + email + portal client existed). Branch `feat/qrf-09-review-fixes`, child of `feat/qrf-08-servicios-enum` (feature-branch-chain).*
 

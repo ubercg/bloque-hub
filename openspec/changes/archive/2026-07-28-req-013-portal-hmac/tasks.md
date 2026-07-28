@@ -2,7 +2,7 @@
 # Tasks: Real BLOQUE Portal Integration — Definitive Contract and HMAC Signing (`req-013-portal-hmac`)
 
 **Source:** REQ-013, `proposal.md`, `design.md`, three spec files (`portal-gate-integration`, `quote-gate-api`, `quote-wizard-frontend`).
-**Delivery strategy:** `ask-on-risk` — the slicing question is already resolved below (see Review Workload Forecast); no further ask needed before `sdd-apply` starts.
+**Delivery strategy:** `ask-on-risk` — the slicing question is already resolved below (see Review Workload Forecast at the end — no further ask needed before `sdd-apply` starts.
 **Chain strategy:** `feature-branch-chain` (tracker branch) — **USER CONFIRMED**. Only the tracker branch ever merges to `main`.
 **Strict TDD:** true. Every implementation task below is paired with the test task that must go red before it goes green, in the **same commit** (work-unit-commits skill). `pytest` for backend, `playwright` for frontend (the frontend has no unit runner — `package.json` only exposes `test:e2e`, design §12).
 
@@ -53,6 +53,11 @@ Tracker: feat/req013-portal-hmac (draft, no-merge, → main only at the end)
                                             └─→ tracker merges to main (BLOCKED on 7.4/7.5 — external Portal credentials)
 ```
 
+**Archive-time note (2026-07-28):** tasks 7.4/7.5 were subsequently completed (connected credentials
+loaded, connected smoke run positive + negative). See §Phase 7 below and the archive report for the
+two remaining operational (not code) gates: WARNING-1 (Sigao edge proxy) and RN-020 (second
+credential pair for a dedicated staging environment).
+
 ---
 
 ## Phase 0 — Confirmations (blocking only where noted, do first)
@@ -63,6 +68,12 @@ Tracker: feat/req013-portal-hmac (draft, no-merge, → main only at the end)
 - [ ] 0.4 *(informational, already resolved, no action)* `ciudad` is ignored entirely (delivery decision #5). Enforced by task 5.9's negative test — not a fresh decision.
 
 *Blocks: 0.2 gates PR #4's merge readiness only (fallback available); 0.1 gates nothing (default is safe to ship and cheap to correct).*
+
+**Archive-time note (2026-07-28):** 0.1, 0.3, 0.4 are correctly unchecked — informational/no-action
+items, not implementation tasks; they never required a checkbox flip. **0.2 remains genuinely
+unresolved at archive time** — see WARNING-1 in the archive report. This is an accurate record, not
+a stale checkbox: the task-completion gate treats Phase 0 confirmation/informational tasks as
+non-blocking for archive per the sdd-archive skill (they are not "implementation tasks").
 
 ---
 

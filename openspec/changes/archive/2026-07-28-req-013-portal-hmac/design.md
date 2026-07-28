@@ -216,8 +216,8 @@ validate_folio(folio) -> PortalGateResult
 **Non-interaction invariants** (each is a test):
 
 1. A re-fire happens *inside* one `client.get(...)`, so it can never increment `attempt`.
-2. Any `401` is terminal for the loop ⇒ at most one transport attempt reaches a `401` ⇒ a
-   `TIMESTAMP_EXPIRED` path costs **exactly two** HTTP requests worst case, for any `N`.
+2. Any `401` is terminal for the loop ⇒ at most one transport attempt reaches a
+   `401` ⇒ a `TIMESTAMP_EXPIRED` path costs **exactly two** HTTP requests worst case, for any `N`.
 3. The loop reads `error_code` **only to log it**. Its sole control decision on a `401` is
    "terminal". The auth layer never observes timeouts or `5xx`.
 4. `PortalHmacAuth` holds no mutable state (D8), so there is nothing to reset between attempts.
@@ -321,7 +321,7 @@ raise_for_portal_status(result.status)
 ```
 
 The `if portal_status != PortalFolioStatus.ELIGIBLE:` catch-all disappears from both sites. This is
-the RN-016 trap of proposal §3: the failure mode is not that someone writes a wrong mapping, it is
+the RN-016 trap of proposal §3, the failure mode is not that someone writes a wrong mapping, it is
 that someone adds an enum member and the existing `else` silently swallows it.
 
 **Unmapped members fail loudly twice, on purpose:**
@@ -704,8 +704,10 @@ window described in §13.1.
 - [ ] **Edge proxy `proxy_intercept_errors` (risk #1).** Not verifiable from this repository. If it
       cannot be confirmed before **slice B2** ships (the slice that now introduces the `502`), flip
       `PORTAL_AUTH_FAILURE_HTTP_STATUS` to `503` and flip the matching row of the frontend fallback
-      table — two lines, no logic change (§5).
+      table — two lines, no logic change (§5). **Still open at archive time (2026-07-28) — see
+      WARNING-1 in the archive report.**
 - [ ] **Truncation marker wording.** `"… [texto recortado]"` is a placeholder; confirm the exact copy
-      (proposal §7.1 asked and got no correction).
+      (proposal §7.1 asked and got no correction). **Resolved by default: no correction was ever
+      received, so the placeholder shipped as the frozen value (tasks.md 0.1).**
 - [ ] **Frontend unit runner.** Playwright-only coverage for `resolveGateFailure` works but is slower
       and coarser than a unit test. Flagged, not proposed.

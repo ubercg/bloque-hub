@@ -52,7 +52,7 @@ A new **public** (no-login) request flow, gated by folio, that reuses Hub's exis
 
 ### Out of scope
 - **Portal state sync-back** after submit (e.g. moving the Portal lead to "Cotización enviada") — deferred.
-- **`lead_prefill`** from Portal to hydrate Step 3 — NOT used in MVP.
+- **`lead_prefill`** from Portal to hydrate Step 3 — NOT used in MVP. **(Later delivered by `req-013-portal-hmac`.)**
 - Creating a `CUSTOMER` user / login — the wizard is 100% public; requester is data on the Lead.
 - Redefining the internal lead/quote state machine beyond adding the folio link.
 - FEA / contract signing (REQ-005), SEMI_DIRECT reservations/pase de caja (REQ-004), KYC document rule changes (REQ-010).
@@ -61,7 +61,7 @@ A new **public** (no-login) request flow, gated by folio, that reuses Hub's exis
 
 ### Assumptions (stated, not blockers)
 - **Legal copy URLs** (Reglamento / Aviso de Privacidad) are provided via env placeholder settings until legal supplies the canonical documents; the checkboxes link to those configurable URLs.
-- **Portal gate auth** on the internal network (API key/HMAC) is assumed not required for MVP; if Portal requires it, it is added to the client wrapper as a config-driven header without changing the flow.
+- **Portal gate auth** on the internal network (API key/HMAC) is assumed not required for MVP; if Portal requires it, it is added to the client wrapper as a config-driven header without changing the flow. **(Archive note 2026-07-28 — this assumption proved FALSE. Portal requires mandatory HMAC-SHA256 signing. Tracked as RISK-4 and closed by `req-013-portal-hmac`; the change was larger than "a config-driven header" because the route, the auth scheme and the status field all changed together.)**
 - `status_post_envio` uses the existing default initial Quote status for a newly submitted quote (no new state introduced beyond the folio link).
 
 ---
