@@ -40,9 +40,9 @@ Tracker: feat/req013-portal-hmac (draft, no-merge, → main only at the end)
         │
         └─→ PR #2  feat/req013-02-portal-mock          (Slice E)   ✅ done
               │
-              └─→ PR #3  feat/req013-03-client-happy-path      (Slice B1 — closes RISK-4)   ✅ done 📍
+              └─→ PR #3  feat/req013-03-client-happy-path      (Slice B1 — closes RISK-4)   ✅ done
                     │
-                    └─→ PR #4  feat/req013-04-error-taxonomy-mapping  (Slice B2 — ATOMIC)   ← next
+                    └─→ PR #4  feat/req013-04-error-taxonomy-mapping  (Slice B2 — ATOMIC)   ✅ done 📍
                           │
                           └─→ PR #5  feat/req013-05-lead-prefill       (Slice C)
                                 │
@@ -122,20 +122,20 @@ Tracker: feat/req013-portal-hmac (draft, no-merge, → main only at the end)
 
 > **Non-negotiable ordering constraint (design §13.1).** The enum member and the mapping helper that handles it, **plus both `public.py` call-site switches**, merge in the **same commit**. Never let `INTEGRATION_AUTH_FAILURE` exist in `client.py` while either `public.py` call site still runs the old `if portal_status != ELIGIBLE:` catch-all — that ordering silently produces `403 FOLIO_NOT_ELIGIBLE` for an auth failure, the exact RN-011 violation this change exists to prevent. Rollback is **whole-slice**: reverting only `portal_gate_http.py` while leaving the enum member in place recreates the same window.
 
-- [ ] 4.1 `PortalGateResult` (status + prefill + `error_code`) with `.eligible(prefill=None)` / `.of(status)` classmethod constructors (D6) — **one** function serves gate and submit (RN-016); no second `fetch_lead_prefill`.
-- [ ] 4.2 `validate_folio(folio) -> PortalGateResult` — return-type change from the bare `PortalFolioStatus` used in B1.
-- [ ] 4.3 TDD, parametrized over the §4.5 error table, one param per row: 401 variants (`MISSING_CREDENTIALS`/`UNKNOWN_API_KEY`/`INVALID_SIGNATURE`/`MALFORMED_TIMESTAMP`, and `TIMESTAMP_EXPIRED` terminal-after-refire) → `INTEGRATION_AUTH_FAILURE`, no retry; `403 NOT_ELIGIBLE`/`TERMINAL` + `404 FOLIO_NOT_FOUND` → `NOT_ELIGIBLE`, no retry; `429`/`5xx`/timeout → `UNAVAILABLE` via the transport loop.
-- [ ] 4.4 TDD request-count assertions: `MISSING_CREDENTIALS` → exactly 1 request; `TIMESTAMP_EXPIRED` → exactly 2; `429`/`5xx` → up to `N` per `PORTAL_RETRY_ATTEMPTS` (non-interaction invariants, design §4).
-- [ ] 4.5 Add `PortalFolioStatus.INTEGRATION_AUTH_FAILURE` enum member.
-- [ ] 4.6 Log markers (§4.1) with `caplog` tests: `portal_gate.auth_failure` (masked folio, `error_code`, public `api_key`, host, `latency_ms`); extend `portal_gate.contract_violation` coverage from B1. TDD: assert the secret, `X-Bloque-Signature`, and the canonical string appear in **no** emitted record across the whole client suite.
-- [ ] 4.7 Delete `PORTAL_API_KEY` entirely from `core/config.py` (not defaulted to `None`) — grep-style test confirming zero hits of `PORTAL_API_KEY` / `X-Api-Key` across `src/`, `.env.example`, and compose files (§10 row 2).
-- [ ] 4.8 Create `api/portal_gate_http.py`: `PORTAL_AUTH_FAILURE_HTTP_STATUS = 502` (the one-line D1 fallback point, see 0.2), `_STATUS_TO_ERROR` mapping dict, `raise_for_portal_status()` — no-op on `ELIGIBLE`, `KeyError` on an unmapped member → `500 PORTAL_STATUS_UNMAPPED` + `portal_gate.unmapped_status` log, **never** a silent `403`.
-- [ ] 4.9 TDD: `test_every_portal_status_is_mapped` — `set(PortalFolioStatus) == {ELIGIBLE} | set(_STATUS_TO_ERROR)`; adding a member without a mapping turns this suite red (the test-time half of the "fails loudly twice" mechanism).
-- [ ] 4.10 TDD: `test_unmapped_status_fails_loudly` — the `KeyError` path resolves to `500`, never `403`.
-- [ ] 4.11 **Same commit as 4.5, 4.8–4.10:** `public.py:144` and `public.py:545` both switch to `raise_for_portal_status(result.status)`; delete the `if portal_status != ELIGIBLE:` catch-all from **both** sites.
-- [ ] 4.12 TDD: `502` + `reason = INTEGRATION_AUTH_FAILURE` returned by the gate endpoint on an upstream `401` of any `error_code`.
-- [ ] 4.13 **D6 repair — 17 patch sites across 4 test files**, all switching a bare `PortalFolioStatus.ELIGIBLE` fake to `PortalGateResult.eligible(...)`/`.of(...)`: `test_public_quote_gate.py` (5 sites), `test_public_quote_submit.py` (6 sites), `test_public_rate_limit.py` (5 sites, incl. the `lambda f: PortalFolioStatus.ELIGIBLE` at `:36`), `test_public_quote_email.py` (1 site, `lambda f: PortalFolioStatus.ELIGIBLE` at `:112`). Full public suite regression re-run green.
-- [ ] 4.14 Resolve Phase 0.2 (edge-proxy verification) before merging this PR: confirmed → keep `502`; unconfirmed → flip `PORTAL_AUTH_FAILURE_HTTP_STATUS` to `503` and flip the matching frontend fallback-table row in this same PR.
+- [x] 4.1 `PortalGateResult` (status + prefill + `error_code`) with `.eligible(prefill=None)` / `.of(status)` classmethod constructors (D6) — **one** function serves gate and submit (RN-016); no second `fetch_lead_prefill`.
+- [x] 4.2 `validate_folio(folio) -> PortalGateResult` — return-type change from the bare `PortalFolioStatus` used in B1.
+- [x] 4.3 TDD, parametrized over the §4.5 error table, one param per row: 401 variants (`MISSING_CREDENTIALS`/`UNKNOWN_API_KEY`/`INVALID_SIGNATURE`/`MALFORMED_TIMESTAMP`, and `TIMESTAMP_EXPIRED` terminal-after-refire) → `INTEGRATION_AUTH_FAILURE`, no retry; `403 NOT_ELIGIBLE`/`TERMINAL` + `404 FOLIO_NOT_FOUND` → `NOT_ELIGIBLE`, no retry; `429`/`5xx`/timeout → `UNAVAILABLE` via the transport loop.
+- [x] 4.4 TDD request-count assertions: `MISSING_CREDENTIALS` → exactly 1 request; `TIMESTAMP_EXPIRED` → exactly 2; `429`/`5xx` → up to `N` per `PORTAL_RETRY_ATTEMPTS` (non-interaction invariants, design §4).
+- [x] 4.5 Add `PortalFolioStatus.INTEGRATION_AUTH_FAILURE` enum member.
+- [x] 4.6 Log markers (§4.1) with `caplog` tests: `portal_gate.auth_failure` (masked folio, `error_code`, public `api_key`, host, `latency_ms`); extend `portal_gate.contract_violation` coverage from B1. TDD: assert the secret, `X-Bloque-Signature`, and the canonical string appear in **no** emitted record across the whole client suite.
+- [x] 4.7 Delete `PORTAL_API_KEY` entirely from `core/config.py` (not defaulted to `None`) — grep-style test confirming zero hits of `PORTAL_API_KEY` / `X-Api-Key` across `src/`, `.env.example`, and compose files (§10 row 2). *(Automated test scoped to `app/` — the only tree the backend container mounts; `.env.example`/compose/root `src/` were swept manually from the host shell and are clean — see BIT-018.)*
+- [x] 4.8 Create `api/portal_gate_http.py`: `PORTAL_AUTH_FAILURE_HTTP_STATUS = 502` (the one-line D1 fallback point, see 0.2), `_STATUS_TO_ERROR` mapping dict, `raise_for_portal_status()` — no-op on `ELIGIBLE`, `KeyError` on an unmapped member → `500 PORTAL_STATUS_UNMAPPED` + `portal_gate.unmapped_status` log, **never** a silent `403`.
+- [x] 4.9 TDD: `test_every_portal_status_is_mapped` — `set(PortalFolioStatus) == {ELIGIBLE} | set(_STATUS_TO_ERROR)`; adding a member without a mapping turns this suite red (the test-time half of the "fails loudly twice" mechanism).
+- [x] 4.10 TDD: `test_unmapped_status_fails_loudly` — the `KeyError` path resolves to `500`, never `403`.
+- [x] 4.11 **Same commit as 4.5, 4.8–4.10:** `public.py:144` and `public.py:545` both switch to `raise_for_portal_status(result.status)`; delete the `if portal_status != ELIGIBLE:` catch-all from **both** sites.
+- [x] 4.12 TDD: `502` + `reason = INTEGRATION_AUTH_FAILURE` returned by the gate endpoint on an upstream `401` of any `error_code`.
+- [x] 4.13 **D6 repair — 17 patch sites across 4 test files**, all switching a bare `PortalFolioStatus.ELIGIBLE` fake to `PortalGateResult.eligible(...)`/`.of(...)`: `test_public_quote_gate.py` (5 sites), `test_public_quote_submit.py` (6 sites), `test_public_rate_limit.py` (5 sites, incl. the `lambda f: PortalFolioStatus.ELIGIBLE` at `:36`), `test_public_quote_email.py` (1 site, `lambda f: PortalFolioStatus.ELIGIBLE` at `:112`). Full public suite regression re-run green.
+- [x] 4.14 Resolve Phase 0.2 (edge-proxy verification) before merging this PR: **this repository's** `nginx.conf` re-confirmed clean (only `proxy_pass` at lines 29, 46, 60, 66, 72, 78 — no `proxy_intercept_errors`/`error_page`) → **kept `502`**. The shared edge proxy in front of this stack lives outside this repository and remains genuinely unverified (not "confirmed safe") — flagged as an open item in BIT-018; the fallback constant (`PORTAL_AUTH_FAILURE_HTTP_STATUS`) is documented as a one-line flip if it's later found to intercept `502`s.
 
 **If B2 must split for review size:** split by `error_code` group (e.g. deterministic-401 group vs. retryable-5xx/429 group), but tasks 4.5 and 4.8–4.11 (enum member, `_STATUS_TO_ERROR`, both `public.py` switches) **must land together** in whichever sub-slice introduces the enum member. Prefer not splitting; if split, merge both sub-slices into the same child branch before opening the next PR downstream — no reviewable unit may ever exist with the enum unmapped.
 
