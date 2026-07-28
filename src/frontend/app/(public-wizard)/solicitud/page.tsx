@@ -11,55 +11,55 @@ import { useRouter } from 'next/navigation';
 import { ShieldCheck } from 'lucide-react';
 
 import apiClient from '@/lib/http/apiClient';
-import { useQuoteWizardStore } from '@/features/quote-wizard';
+import {
+  GATE_STATUS,
+  readGateError,
+  resolveGateFailure,
+  useQuoteWizardStore,
+  type LeadPrefill,
+} from '@/features/quote-wizard';
 
 const FOLIO_PLACEHOLDER = 'BCE-YYYYMMDD-HHMMSS-RRRR';
 /** Mirrors RN-017 server-side format check; client-side hint only, server is authoritative. */
 const FOLIO_FORMAT_HINT = /^BCE-\d{8}-\d{6}-\d{4}$/;
 
-const RN003_MESSAGE =
-  'El folio proporcionado no se encuentra disponible para iniciar una cotización. Verifica el estatus en BLOQUE Portal.';
-const INVALID_FORMAT_MESSAGE = 'El formato de folio ingresado no es válido. Verifica el folio e intenta de nuevo.';
-const UNAVAILABLE_MESSAGE = 'El servicio de validación no está disponible en este momento. Intenta de nuevo más tarde.';
-const GENERIC_ERROR_MESSAGE = 'Ocurrió un error al validar el folio. Intenta de nuevo.';
+interface ValidateFolioResponse {
+  lead_prefill?: LeadPrefill | null;
+}
 
 export default function SolicitudGatePage() {
   const router = useRouter();
   const setFolio = useQuoteWizardStore((s) => s.setFolio);
   const setGateStatus = useQuoteWizardStore((s) => s.setGateStatus);
+  const hydrateFromPrefill = useQuoteWizardStore((s) => s.hydrateFromPrefill);
   const gateStatus = useQuoteWizardStore((s) => s.gateStatus);
   const gateErrorMessage = useQuoteWizardStore((s) => s.gateErrorMessage);
 
   const [folioInput, setFolioInput] = useState('');
-  const isLoading = gateStatus === 'loading';
+  const isLoading = gateStatus === GATE_STATUS.LOADING;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const trimmedFolio = folioInput.trim();
     setFolio(trimmedFolio);
-    setGateStatus('loading');
+    setGateStatus(GATE_STATUS.LOADING);
 
     // FOLIO_FORMAT_HINT is a client-side hint only (RN-017); the server is the
     // authoritative validator and returns 422 for malformed folios.
     try {
-      await apiClient.post('/public/quote-requests/validate-folio', { folio: trimmedFolio });
-      setGateStatus('unlocked');
+      const res = await apiClient.post<ValidateFolioResponse>('/public/quote-requests/validate-folio', {
+        folio: trimmedFolio,
+      });
+      // Hydration runs BEFORE unlock + navigation so Step 3 mounts already filled.
+      if (res.data.lead_prefill) {
+        hydrateFromPrefill(res.data.lead_prefill);
+      }
+      setGateStatus(GATE_STATUS.UNLOCKED);
       router.push('/solicitud/wizard');
     } catch (err: unknown) {
-      const status =
-        err && typeof err === 'object' && 'response' in err
-          ? (err as { response?: { status?: number } }).response?.status
-          : undefined;
-
-      if (status === 422) {
-        setGateStatus('invalid_format', INVALID_FORMAT_MESSAGE);
-      } else if (status === 403) {
-        setGateStatus('not_eligible', RN003_MESSAGE);
-      } else if (status === 503) {
-        setGateStatus('unavailable', UNAVAILABLE_MESSAGE);
-      } else {
-        setGateStatus('not_eligible', GENERIC_ERROR_MESSAGE);
-      }
+      const { status, reason } = readGateError(err);
+      const [nextStatus, message] = resolveGateFailure(status, reason);
+      setGateStatus(nextStatus, message);
     }
   };
 
@@ -96,14 +96,17 @@ export default function SolicitudGatePage() {
             />
           </div>
 
-          {gateStatus !== 'idle' && gateStatus !== 'loading' && gateStatus !== 'unlocked' && gateErrorMessage && (
-            <div
-              role="alert"
-              className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2"
-            >
-              {gateErrorMessage}
-            </div>
-          )}
+          {gateStatus !== GATE_STATUS.IDLE &&
+            gateStatus !== GATE_STATUS.LOADING &&
+            gateStatus !== GATE_STATUS.UNLOCKED &&
+            gateErrorMessage && (
+              <div
+                role="alert"
+                className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2"
+              >
+                {gateErrorMessage}
+              </div>
+            )}
 
           <button
             type="submit"

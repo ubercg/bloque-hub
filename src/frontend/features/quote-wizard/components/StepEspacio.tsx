@@ -93,6 +93,8 @@ export function StepEspacio() {
   const discountCode = useQuoteWizardStore((s) => s.discountCode);
   const discountAmount = useQuoteWizardStore((s) => s.discountAmount);
   const setField = useQuoteWizardStore((s) => s.setField);
+  const fechaTentativa = useQuoteWizardStore((s) => s.fechaTentativa);
+  const espacioRequerido = useQuoteWizardStore((s) => s.espacioRequerido);
 
   const [spaces, setSpaces] = useState<SpaceOption[]>([]);
   const [spacesLoading, setSpacesLoading] = useState(true);
@@ -278,6 +280,23 @@ export function StepEspacio() {
           final se confirma al enviar tu solicitud.
         </p>
       </div>
+
+      {(fechaTentativa || espacioRequerido) && (
+        // Reference-only display from BLOQUE Portal's lead_prefill (RN-015, RN-022).
+        // Never bound to an input, addItem, a date default, or a space_id lookup.
+        <div
+          role="note"
+          aria-label="Referencia de tu solicitud en BLOQUE Portal"
+          className="rounded-lg border border-blue-100 bg-blue-50/60 px-4 py-3 text-sm text-blue-950"
+        >
+          <p className="font-medium mb-1">Referencia de tu solicitud en BLOQUE Portal</p>
+          {fechaTentativa && <p>Fecha tentativa indicada: {fechaTentativa}</p>}
+          {espacioRequerido && <p>Espacio solicitado: {espacioRequerido}</p>}
+          <p className="text-xs text-blue-900/70 mt-1">
+            Esta información es solo de referencia. Elige el espacio y horario disponibles abajo.
+          </p>
+        </div>
+      )}
 
       {spacesLoading ? (
         <div className="flex items-center justify-center gap-2 py-12 text-gray-500">
