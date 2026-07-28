@@ -30,8 +30,10 @@ from app.modules.inventory.services import (
 )
 from app.modules.notifications.email_service import send_email
 from app.modules.notifications.templating import render
+from app.api.portal_gate_http import raise_for_portal_status
 from app.modules.portal_gate import client as portal_gate_client
 from app.modules.portal_gate.client import PortalFolioStatus, PortalUnavailableError, is_valid_folio_format
+from app.modules.portal_gate.prefill import LeadPrefill
 from app.modules.pricing.services import NoPricingRuleError
 from app.modules.reservation_documents.services import (
     _ALLOWED_MIME_NORMALIZED,
@@ -43,12 +45,10 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["public"])
 
-# RN-003 fixed message (design.md §2.2, §4.4).
-_FOLIO_NOT_ELIGIBLE_MESSAGE = (
-    "El folio proporcionado no se encuentra disponible para iniciar una "
-    "cotización. Verifica el estatus en BLOQUE Portal."
-)
-_PORTAL_UNAVAILABLE_MESSAGE = "Portal no disponible, intenta más tarde."
+# REQ-013 B2: the FOLIO_NOT_ELIGIBLE / PORTAL_UNAVAILABLE / INTEGRATION_AUTH_
+# FAILURE copy now lives in `api/portal_gate_http.py` as the single source
+# both call sites below read from via `raise_for_portal_status` — no
+# duplicated message strings, no per-site catch-all.
 
 _SPACE_PROMO_FILENAME = re.compile(
     r"^[a-f0-9]{32}\.(jpe?g|png|webp|gif)$",
@@ -105,10 +105,35 @@ class FolioValidateRequest(BaseModel):
     folio: str
 
 
+class LeadPrefillOut(BaseModel):
+    """Flat Pydantic mirror of `LeadPrefill` (design §6). Populated ONLY on
+    `FolioValidateResponse` for an ELIGIBLE folio — never on any error
+    detail body and never on `QuoteRequestSubmitResponse` (task 5.12)."""
+
+    nombre_completo: str | None = None
+    cargo_puesto: str | None = None
+    institucion_organizacion: str | None = None
+    correo_institucional: str | None = None
+    telefono_contacto: str | None = None
+    asistentes_estimados: int | None = None
+    fecha_tentativa: str | None = None
+    tipo_evento_sugerido: str | None = None
+    espacio_requerido: str | None = None
+    requerimientos_especiales: str | None = None
+    como_conociste_bloque: str | None = None
+
+    model_config = {"from_attributes": True}
+
+
+def _lead_prefill_out(prefill: LeadPrefill | None) -> "LeadPrefillOut | None":
+    return LeadPrefillOut.model_validate(prefill) if prefill is not None else None
+
+
 class FolioValidateResponse(BaseModel):
     unlocked: bool
     folio: str
     portal_status: str
+    lead_prefill: LeadPrefillOut | None = None
 
 
 class QuoteRequestSubmitResponse(BaseModel):
@@ -141,23 +166,16 @@ def validate_quote_request_folio(request: Request, payload: FolioValidateRequest
         )
 
     try:
-        portal_status = portal_gate_client.validate_folio(payload.folio)
+        result = portal_gate_client.validate_folio(payload.folio)
     except PortalUnavailableError:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail={"reason": "PORTAL_UNAVAILABLE", "message": _PORTAL_UNAVAILABLE_MESSAGE},
-        )
-
-    if portal_status != PortalFolioStatus.ELIGIBLE:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={"reason": "FOLIO_NOT_ELIGIBLE", "message": _FOLIO_NOT_ELIGIBLE_MESSAGE},
-        )
+        raise_for_portal_status(PortalFolioStatus.UNAVAILABLE)
+    raise_for_portal_status(result.status)
 
     return FolioValidateResponse(
         unlocked=True,
         folio=payload.folio,
         portal_status=portal_gate_client.PORTAL_ELIGIBLE_STATUS_VALUE,
+        lead_prefill=_lead_prefill_out(result.prefill),
     )
 
 
@@ -542,17 +560,10 @@ def submit_quote_request(
 
     # 3. RN-004 revalidation BEFORE opening the write transaction.
     try:
-        portal_status = portal_gate_client.validate_folio(parsed.folio)
+        result = portal_gate_client.validate_folio(parsed.folio)
     except PortalUnavailableError:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail={"reason": "PORTAL_UNAVAILABLE", "message": _PORTAL_UNAVAILABLE_MESSAGE},
-        )
-    if portal_status != PortalFolioStatus.ELIGIBLE:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={"reason": "FOLIO_NOT_ELIGIBLE", "message": _FOLIO_NOT_ELIGIBLE_MESSAGE},
-        )
+        raise_for_portal_status(PortalFolioStatus.UNAVAILABLE)
+    raise_for_portal_status(result.status)
 
     tenant_id = UUID(str(settings.DEFAULT_TENANT_ID))
     written_paths: list[Path] = []

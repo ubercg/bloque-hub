@@ -33,7 +33,8 @@ from app.modules.crm.models import (
 from app.modules.identity.models import User
 from app.modules.inventory.models import Space
 from app.modules.inventory.services import apply_soft_hold_for_quote
-from app.modules.portal_gate.client import PortalFolioStatus, PortalUnavailableError
+from app.modules.portal_gate.client import PortalFolioStatus, PortalGateResult, PortalUnavailableError
+from app.modules.portal_gate.prefill import LeadPrefill
 from app.modules.pricing.models import PricingRule
 from tests.conftest import unique_portal_folio
 
@@ -118,7 +119,7 @@ def _mock_eligible(monkeypatch):
     monkeypatch.setattr(
         public_module.portal_gate_client,
         "validate_folio",
-        lambda folio: PortalFolioStatus.ELIGIBLE,
+        lambda folio: PortalGateResult.eligible(),
     )
 
 
@@ -229,6 +230,44 @@ class TestSubmitHappyPath:
 
         assert response.status_code == 201
 
+    def test_lead_prefill_never_appears_on_the_submit_response(
+        self, client, monkeypatch, tenant_a, db_super
+    ):
+        """Task 5.12: `lead_prefill` is a `FolioValidateResponse`-only field —
+        it must never appear on `QuoteRequestSubmitResponse`, even though the
+        RN-004 revalidation call returns a `PortalGateResult` that could
+        carry one."""
+        _set_default_tenant(monkeypatch, tenant_a.id)
+        monkeypatch.setattr(
+            public_module.portal_gate_client,
+            "validate_folio",
+            lambda folio: PortalGateResult.eligible(
+                prefill=LeadPrefill(
+                    nombre_completo="Ana Lopez",
+                    cargo_puesto=None,
+                    institucion_organizacion=None,
+                    correo_institucional=None,
+                    telefono_contacto=None,
+                    asistentes_estimados=None,
+                    fecha_tentativa=None,
+                    tipo_evento_sugerido=None,
+                    espacio_requerido=None,
+                    requerimientos_especiales=None,
+                    como_conociste_bloque=None,
+                )
+            ),
+        )
+
+        space = _make_space(db_super, tenant_a.id, uuid4().hex[:8])
+        _make_pricing_rule(db_super, tenant_a.id, space.id)
+        day = date.today() + timedelta(days=66)
+        payload = _base_payload(items=[_item_dict(space.id, day)])
+
+        response = _submit(client, payload)
+
+        assert response.status_code == 201, response.text
+        assert set(response.json().keys()) == {"quote_id", "total", "email_sent"}
+
 
 @pytest.mark.integration
 class TestSubmitRn004Revalidation:
@@ -239,7 +278,7 @@ class TestSubmitRn004Revalidation:
         monkeypatch.setattr(
             public_module.portal_gate_client,
             "validate_folio",
-            lambda folio: PortalFolioStatus.NOT_ELIGIBLE,
+            lambda folio: PortalGateResult.of(PortalFolioStatus.NOT_ELIGIBLE),
         )
 
         space = _make_space(db_super, tenant_a.id, uuid4().hex[:8])
@@ -250,6 +289,7 @@ class TestSubmitRn004Revalidation:
         response = _submit(client, payload)
 
         assert response.status_code == 403
+        assert "lead_prefill" not in response.json()["detail"]
         with get_db_context(tenant_id=str(tenant_a.id), role=None) as db:
             _no_rows_for(db, payload["correo_institucional"], payload["folio"])
 
@@ -271,6 +311,7 @@ class TestSubmitRn004Revalidation:
         response = _submit(client, payload)
 
         assert response.status_code == 503
+        assert "lead_prefill" not in response.json()["detail"]
         with get_db_context(tenant_id=str(tenant_a.id), role=None) as db:
             _no_rows_for(db, payload["correo_institucional"], payload["folio"])
 
@@ -623,7 +664,7 @@ class TestSubmitFileValidation:
 
         def _spy(folio: str):
             called["count"] += 1
-            return PortalFolioStatus.ELIGIBLE
+            return PortalGateResult.eligible()
 
         monkeypatch.setattr(public_module.portal_gate_client, "validate_folio", _spy)
 
@@ -647,7 +688,7 @@ class TestSubmitFileValidation:
 
         def _spy(folio: str):
             called["count"] += 1
-            return PortalFolioStatus.ELIGIBLE
+            return PortalGateResult.eligible()
 
         monkeypatch.setattr(public_module.portal_gate_client, "validate_folio", _spy)
 
@@ -678,7 +719,7 @@ class TestSubmitFileValidation:
 
         def _spy(folio: str):
             called["count"] += 1
-            return PortalFolioStatus.ELIGIBLE
+            return PortalGateResult.eligible()
 
         monkeypatch.setattr(public_module.portal_gate_client, "validate_folio", _spy)
 

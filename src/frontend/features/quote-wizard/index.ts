@@ -1,9 +1,14 @@
 export {
   useQuoteWizardStore,
+  GATE_STATUS,
+  type GateStatus,
+  type LeadPrefill,
   type QuoteWizardState,
   type WizardItem,
   type WizardStep,
 } from './store/quote-wizard.store';
+
+export { readGateError, resolveGateFailure, type GateError } from './gate-error';
 
 export { StepEvento } from './components/StepEvento';
 export { StepEspacio } from './components/StepEspacio';

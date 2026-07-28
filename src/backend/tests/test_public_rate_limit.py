@@ -23,7 +23,7 @@ Celery broker's).
 import app.api.public as public_module
 from app.core.config import settings
 from app.core.rate_limit import limiter
-from app.modules.portal_gate.client import PortalFolioStatus
+from app.modules.portal_gate.client import PortalGateResult
 from tests.conftest import unique_portal_folio
 
 
@@ -33,7 +33,7 @@ class TestValidateFolioRateLimit:
         monkeypatch.setattr(
             public_module.portal_gate_client,
             "validate_folio",
-            lambda f: PortalFolioStatus.ELIGIBLE,
+            lambda f: PortalGateResult.eligible(),
         )
 
         headers = {"X-Forwarded-For": "203.0.113.10"}
@@ -54,7 +54,7 @@ class TestValidateFolioRateLimit:
         monkeypatch.setattr(
             public_module.portal_gate_client,
             "validate_folio",
-            lambda f: PortalFolioStatus.ELIGIBLE,
+            lambda f: PortalGateResult.eligible(),
         )
         headers = {"X-Forwarded-For": "203.0.113.11"}
 
@@ -111,7 +111,7 @@ class TestKeyFuncBucketsByForwardedFor:
         monkeypatch.setattr(
             public_module.portal_gate_client,
             "validate_folio",
-            lambda f: PortalFolioStatus.ELIGIBLE,
+            lambda f: PortalGateResult.eligible(),
         )
 
         headers_a = {"X-Forwarded-For": "198.51.100.1"}
@@ -139,7 +139,7 @@ class TestKeyFuncBucketsByForwardedFor:
         monkeypatch.setattr(
             public_module.portal_gate_client,
             "validate_folio",
-            lambda f: PortalFolioStatus.ELIGIBLE,
+            lambda f: PortalGateResult.eligible(),
         )
         headers = {"X-Forwarded-For": "198.51.100.3"}
 
@@ -205,7 +205,7 @@ class TestFailOpenOnStorageError:
         monkeypatch.setattr(
             public_module.portal_gate_client,
             "validate_folio",
-            lambda f: PortalFolioStatus.ELIGIBLE,
+            lambda f: PortalGateResult.eligible(),
         )
 
         def _broken_incr(*args, **kwargs):
