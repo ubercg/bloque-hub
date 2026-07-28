@@ -6,7 +6,7 @@ with a distinct PORTAL_UNAVAILABLE taxonomy (resilience requirement).
 """
 
 import app.api.public as public_module
-from app.modules.portal_gate.client import PortalFolioStatus, PortalUnavailableError
+from app.modules.portal_gate.client import PortalFolioStatus, PortalGateResult, PortalUnavailableError
 from tests.conftest import unique_portal_folio
 
 VALID_FOLIO = "BCE-20260715-172822-2973"
@@ -22,7 +22,7 @@ class TestFolioFormatValidation:
 
         def _spy(folio: str):
             called["count"] += 1
-            return PortalFolioStatus.ELIGIBLE
+            return PortalGateResult.eligible()
 
         monkeypatch.setattr(public_module.portal_gate_client, "validate_folio", _spy)
 
@@ -39,7 +39,7 @@ class TestFolioFormatValidation:
 
         def _spy(folio: str):
             called["count"] += 1
-            return PortalFolioStatus.ELIGIBLE
+            return PortalGateResult.eligible()
 
         monkeypatch.setattr(public_module.portal_gate_client, "validate_folio", _spy)
 
@@ -59,7 +59,7 @@ class TestFolioGateEligibility:
         monkeypatch.setattr(
             public_module.portal_gate_client,
             "validate_folio",
-            lambda f: PortalFolioStatus.ELIGIBLE,
+            lambda f: PortalGateResult.eligible(),
         )
 
         response = client.post(
@@ -76,7 +76,7 @@ class TestFolioGateEligibility:
         monkeypatch.setattr(
             public_module.portal_gate_client,
             "validate_folio",
-            lambda f: PortalFolioStatus.NOT_ELIGIBLE,
+            lambda f: PortalGateResult.of(PortalFolioStatus.NOT_ELIGIBLE),
         )
 
         response = client.post(
@@ -103,3 +103,47 @@ class TestFolioGateEligibility:
         assert response.status_code == 503
         body = response.json()
         assert body["detail"]["reason"] == "PORTAL_UNAVAILABLE"
+
+
+class TestFolioGateAuthFailure:
+    """REQ-013 §13.1 / task 4.12: any upstream 401 (any error_code) resolves
+    to INTEGRATION_AUTH_FAILURE, which the gate endpoint reports as the
+    configured status (502 by default, see portal_gate_http.py) — never the
+    old `!= ELIGIBLE` catch-all's 403."""
+
+    def test_auth_failure_returns_configured_status_with_reason(self, client, monkeypatch):
+        from app.api.portal_gate_http import PORTAL_AUTH_FAILURE_HTTP_STATUS
+
+        monkeypatch.setattr(
+            public_module.portal_gate_client,
+            "validate_folio",
+            lambda f: PortalGateResult.of(
+                PortalFolioStatus.INTEGRATION_AUTH_FAILURE, error_code="INVALID_SIGNATURE"
+            ),
+        )
+
+        response = client.post(
+            "/api/public/quote-requests/validate-folio",
+            json={"folio": _valid_folio()},
+        )
+
+        assert response.status_code == PORTAL_AUTH_FAILURE_HTTP_STATUS
+        body = response.json()
+        assert body["detail"]["reason"] == "INTEGRATION_AUTH_FAILURE"
+        assert response.status_code != 403
+
+    def test_auth_failure_message_has_no_call_to_action(self, client, monkeypatch):
+        monkeypatch.setattr(
+            public_module.portal_gate_client,
+            "validate_folio",
+            lambda f: PortalGateResult.of(PortalFolioStatus.INTEGRATION_AUTH_FAILURE),
+        )
+
+        response = client.post(
+            "/api/public/quote-requests/validate-folio",
+            json={"folio": _valid_folio()},
+        )
+
+        message = response.json()["detail"]["message"].lower()
+        assert "intenta de nuevo" not in message
+        assert "contacta" not in message

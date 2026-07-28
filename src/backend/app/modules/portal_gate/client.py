@@ -12,7 +12,9 @@ import enum
 import logging
 import re
 import time
+from dataclasses import dataclass
 from typing import Any, Mapping
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -54,6 +56,14 @@ class PortalFolioStatus(str, enum.Enum):
     ELIGIBLE = "eligible"
     NOT_ELIGIBLE = "not_eligible"
     UNAVAILABLE = "unavailable"
+    # REQ-013 §4.5 / design §4, §13.1 — ANY 401, of any error_code, is
+    # terminal for the transport loop. This member and the mapping that
+    # handles it (`api/portal_gate_http.py`) must merge in the SAME commit
+    # as both `public.py` call-site switches — see design §13.1. Adding it
+    # here alone, without the mapping, recreates the exact RN-011 violation
+    # this change exists to prevent (a `403 FOLIO_NOT_ELIGIBLE` lie for an
+    # auth failure, via the old `!= ELIGIBLE` catch-all).
+    INTEGRATION_AUTH_FAILURE = "integration_auth_failure"
 
 
 class PortalGateError(Exception):
@@ -65,6 +75,33 @@ class PortalUnavailableError(PortalGateError):
     or when a 200 response violates the REQ-013 §4.4 contract (missing
     `data.status` — RN-009: a contract violation is never a business
     rejection, so it must never resolve to NOT_ELIGIBLE)."""
+
+
+@dataclass(frozen=True, slots=True)
+class PortalGateResult:
+    """Result of `validate_folio` (design.md §2 D6, §11).
+
+    One function serves both the gate and submit-revalidation call sites
+    (RN-016) — a richer return type means the gate can carry `prefill` while
+    submit only reads `.status`, without a second outbound-call function.
+
+    `prefill` is a placeholder (`None`) in this slice — the full
+    Portal-shape-to-Hub-shape mapping is Slice C (`prefill.py`). `error_code`
+    carries Portal's raw `error_code` for `INTEGRATION_AUTH_FAILURE`
+    diagnostics only; it is never surfaced to any Hub API response (RN-010).
+    """
+
+    status: PortalFolioStatus
+    prefill: Any | None = None
+    error_code: str | None = None
+
+    @classmethod
+    def eligible(cls, prefill: Any | None = None) -> "PortalGateResult":
+        return cls(status=PortalFolioStatus.ELIGIBLE, prefill=prefill)
+
+    @classmethod
+    def of(cls, status: PortalFolioStatus, *, error_code: str | None = None) -> "PortalGateResult":
+        return cls(status=status, error_code=error_code)
 
 
 def is_valid_folio_format(folio: str) -> bool:
@@ -89,7 +126,22 @@ def _build_url(folio: str) -> str:
     return f"{settings.PORTAL_API_BASE_URL.rstrip('/')}{path}"
 
 
-def _extract_status(response: httpx.Response, folio: str) -> PortalFolioStatus:
+def _request_host(url: str) -> str:
+    """Netloc only — no path, no query (§4.1 field list)."""
+    return urlsplit(url).netloc
+
+
+def _extract_error_code(response: httpx.Response) -> str | None:
+    """Portal's `error_code` field — never `message` (RN-010: Portal's copy
+    carries no stability contract)."""
+    try:
+        body = response.json()
+    except ValueError:
+        return None
+    return body.get("error_code") if isinstance(body, dict) else None
+
+
+def _extract_status(response: httpx.Response, folio: str, latency_ms: int) -> PortalFolioStatus:
     body = response.json()
     data = body.get("data") if isinstance(body, dict) else None
 
@@ -98,11 +150,12 @@ def _extract_status(response: httpx.Response, folio: str) -> PortalFolioStatus:
         # not a rejection. Log keys only (§4.1) — never a value, never PII.
         logger.error(
             "portal_gate.contract_violation folio=%s status_label=%s "
-            "received_keys=%s data_keys=%s",
+            "received_keys=%s data_keys=%s latency_ms=%d",
             _masked_folio(folio),
             body.get("status_label") if isinstance(body, dict) else None,
             _shape_keys(body),
             _shape_keys(data),
+            latency_ms,
         )
         raise PortalUnavailableError(
             f"Portal response for folio {_masked_folio(folio)} is missing "
@@ -114,7 +167,34 @@ def _extract_status(response: httpx.Response, folio: str) -> PortalFolioStatus:
     return PortalFolioStatus.NOT_ELIGIBLE
 
 
-def validate_folio(folio: str) -> PortalFolioStatus:
+def _resolve_success(response: httpx.Response, folio: str, latency_ms: int) -> PortalGateResult:
+    status_value = _extract_status(response, folio, latency_ms)
+    if status_value == PortalFolioStatus.ELIGIBLE:
+        # `prefill=None` this slice — Slice C wires map_lead_prefill() here.
+        return PortalGateResult.eligible()
+    return PortalGateResult.of(status_value)
+
+
+def _resolve_auth_failure(
+    response: httpx.Response, folio: str, request_host: str, latency_ms: int
+) -> PortalGateResult:
+    """ANY 401, any error_code, is TERMINAL for the transport loop (design
+    §4). The RN-012 re-fire for TIMESTAMP_EXPIRED already happened one layer
+    down, inside `PortalHmacAuth.auth_flow` — by the time client.py sees a
+    401 here, it is the FINAL response for this attempt."""
+    error_code = _extract_error_code(response)
+    logger.error(
+        "portal_gate.auth_failure folio=%s error_code=%s api_key=%s host=%s latency_ms=%d",
+        _masked_folio(folio),
+        error_code or "UNKNOWN",
+        settings.PORTAL_HUB_API_KEY,
+        request_host,
+        latency_ms,
+    )
+    return PortalGateResult.of(PortalFolioStatus.INTEGRATION_AUTH_FAILURE, error_code=error_code)
+
+
+def validate_folio(folio: str) -> PortalGateResult:
     """Validate a folio's eligibility against the BLOQUE Portal.
 
     RN-017 format check happens first — malformed folios never trigger a
@@ -123,20 +203,22 @@ def validate_folio(folio: str) -> PortalFolioStatus:
     responses, up to settings.PORTAL_RETRY_ATTEMPTS, with a short backoff
     between attempts. 403/404 are deterministic and are never retried.
 
-    A 401 of any kind is, for this slice, treated the same as any other
-    unexpected status: PortalUnavailableError, no retry (the full
-    INTEGRATION_AUTH_FAILURE taxonomy lands in a later slice — see
-    design.md §13.1).
+    ANY 401 (any error_code) is TERMINAL for this loop and resolves to
+    `INTEGRATION_AUTH_FAILURE` (design §4, §13.1) — the RN-012 re-fire for
+    `TIMESTAMP_EXPIRED` already happened one layer down, inside
+    `PortalHmacAuth.auth_flow`, so it never costs a transport-retry slot.
     """
     if not is_valid_folio_format(folio):
-        return PortalFolioStatus.NOT_ELIGIBLE
+        return PortalGateResult.of(PortalFolioStatus.NOT_ELIGIBLE)
 
     url = _build_url(folio)
+    request_host = _request_host(url)
     auth = PortalHmacAuth(settings.PORTAL_HUB_API_KEY, settings.PORTAL_HUB_API_SECRET)
     attempts = _resolved_retry_attempts()
 
     last_error: Exception | None = None
     for attempt in range(attempts):
+        started = time.monotonic()
         try:
             with httpx.Client(
                 auth=auth, timeout=httpx.Timeout(5.0, connect=3.0)
@@ -158,10 +240,14 @@ def validate_folio(folio: str) -> PortalFolioStatus:
                 f"Portal unreachable after {attempts} attempts"
             ) from exc
 
+        latency_ms = int((time.monotonic() - started) * 1000)
+
         if response.status_code == 200:
-            return _extract_status(response, folio)
+            return _resolve_success(response, folio, latency_ms)
+        if response.status_code == 401:
+            return _resolve_auth_failure(response, folio, request_host, latency_ms)
         if response.status_code in (403, 404):
-            return PortalFolioStatus.NOT_ELIGIBLE
+            return PortalGateResult.of(PortalFolioStatus.NOT_ELIGIBLE)
         if response.status_code == 429 or response.status_code >= _RETRYABLE_STATUS_THRESHOLD:
             last_error = PortalGateError(
                 f"Portal returned {response.status_code}"
@@ -183,11 +269,8 @@ def validate_folio(folio: str) -> PortalFolioStatus:
                 f"(last status {response.status_code})"
             ) from last_error
 
-        # Any OTHER unexpected status (e.g. 401 from a bad signature/expired
-        # clock) is NOT a deterministic business rejection — unlike 403/404,
-        # it signals a misconfiguration or transient Portal issue and must
-        # not silently masquerade as NOT_ELIGIBLE. The full 401 taxonomy
-        # (INTEGRATION_AUTH_FAILURE) is out of scope for this slice.
+        # Any OTHER unexpected status is not part of the documented taxonomy
+        # (design §4.5) — fail loudly as unavailable rather than guessing.
         logger.warning(
             "Portal gate returned unexpected status %d for folio %s — "
             "treating as unavailable, not a business rejection",

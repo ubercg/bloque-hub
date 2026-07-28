@@ -33,7 +33,7 @@ from app.modules.crm.models import (
 from app.modules.identity.models import User
 from app.modules.inventory.models import Space
 from app.modules.inventory.services import apply_soft_hold_for_quote
-from app.modules.portal_gate.client import PortalFolioStatus, PortalUnavailableError
+from app.modules.portal_gate.client import PortalFolioStatus, PortalGateResult, PortalUnavailableError
 from app.modules.pricing.models import PricingRule
 from tests.conftest import unique_portal_folio
 
@@ -118,7 +118,7 @@ def _mock_eligible(monkeypatch):
     monkeypatch.setattr(
         public_module.portal_gate_client,
         "validate_folio",
-        lambda folio: PortalFolioStatus.ELIGIBLE,
+        lambda folio: PortalGateResult.eligible(),
     )
 
 
@@ -239,7 +239,7 @@ class TestSubmitRn004Revalidation:
         monkeypatch.setattr(
             public_module.portal_gate_client,
             "validate_folio",
-            lambda folio: PortalFolioStatus.NOT_ELIGIBLE,
+            lambda folio: PortalGateResult.of(PortalFolioStatus.NOT_ELIGIBLE),
         )
 
         space = _make_space(db_super, tenant_a.id, uuid4().hex[:8])
@@ -623,7 +623,7 @@ class TestSubmitFileValidation:
 
         def _spy(folio: str):
             called["count"] += 1
-            return PortalFolioStatus.ELIGIBLE
+            return PortalGateResult.eligible()
 
         monkeypatch.setattr(public_module.portal_gate_client, "validate_folio", _spy)
 
@@ -647,7 +647,7 @@ class TestSubmitFileValidation:
 
         def _spy(folio: str):
             called["count"] += 1
-            return PortalFolioStatus.ELIGIBLE
+            return PortalGateResult.eligible()
 
         monkeypatch.setattr(public_module.portal_gate_client, "validate_folio", _spy)
 
@@ -678,7 +678,7 @@ class TestSubmitFileValidation:
 
         def _spy(folio: str):
             called["count"] += 1
-            return PortalFolioStatus.ELIGIBLE
+            return PortalGateResult.eligible()
 
         monkeypatch.setattr(public_module.portal_gate_client, "validate_folio", _spy)
 

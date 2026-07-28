@@ -17,7 +17,7 @@ import app.api.public as public_module
 from app.db.session import get_db_context
 from app.modules.inventory.models import Space
 from app.modules.notifications.models import NotificationLog
-from app.modules.portal_gate.client import PortalFolioStatus
+from app.modules.portal_gate.client import PortalGateResult
 from app.modules.pricing.models import PricingRule
 from app.modules.crm.models import (
     CaracterEvento,
@@ -109,7 +109,7 @@ def _mock_eligible(monkeypatch):
     monkeypatch.setattr(
         public_module.portal_gate_client,
         "validate_folio",
-        lambda folio: PortalFolioStatus.ELIGIBLE,
+        lambda folio: PortalGateResult.eligible(),
     )
 
 

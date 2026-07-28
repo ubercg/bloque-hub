@@ -30,6 +30,7 @@ from app.modules.inventory.services import (
 )
 from app.modules.notifications.email_service import send_email
 from app.modules.notifications.templating import render
+from app.api.portal_gate_http import raise_for_portal_status
 from app.modules.portal_gate import client as portal_gate_client
 from app.modules.portal_gate.client import PortalFolioStatus, PortalUnavailableError, is_valid_folio_format
 from app.modules.pricing.services import NoPricingRuleError
@@ -43,12 +44,10 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["public"])
 
-# RN-003 fixed message (design.md §2.2, §4.4).
-_FOLIO_NOT_ELIGIBLE_MESSAGE = (
-    "El folio proporcionado no se encuentra disponible para iniciar una "
-    "cotización. Verifica el estatus en BLOQUE Portal."
-)
-_PORTAL_UNAVAILABLE_MESSAGE = "Portal no disponible, intenta más tarde."
+# REQ-013 B2: the FOLIO_NOT_ELIGIBLE / PORTAL_UNAVAILABLE / INTEGRATION_AUTH_
+# FAILURE copy now lives in `api/portal_gate_http.py` as the single source
+# both call sites below read from via `raise_for_portal_status` — no
+# duplicated message strings, no per-site catch-all.
 
 _SPACE_PROMO_FILENAME = re.compile(
     r"^[a-f0-9]{32}\.(jpe?g|png|webp|gif)$",
@@ -141,18 +140,10 @@ def validate_quote_request_folio(request: Request, payload: FolioValidateRequest
         )
 
     try:
-        portal_status = portal_gate_client.validate_folio(payload.folio)
+        result = portal_gate_client.validate_folio(payload.folio)
     except PortalUnavailableError:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail={"reason": "PORTAL_UNAVAILABLE", "message": _PORTAL_UNAVAILABLE_MESSAGE},
-        )
-
-    if portal_status != PortalFolioStatus.ELIGIBLE:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={"reason": "FOLIO_NOT_ELIGIBLE", "message": _FOLIO_NOT_ELIGIBLE_MESSAGE},
-        )
+        raise_for_portal_status(PortalFolioStatus.UNAVAILABLE)
+    raise_for_portal_status(result.status)
 
     return FolioValidateResponse(
         unlocked=True,
@@ -542,17 +533,10 @@ def submit_quote_request(
 
     # 3. RN-004 revalidation BEFORE opening the write transaction.
     try:
-        portal_status = portal_gate_client.validate_folio(parsed.folio)
+        result = portal_gate_client.validate_folio(parsed.folio)
     except PortalUnavailableError:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail={"reason": "PORTAL_UNAVAILABLE", "message": _PORTAL_UNAVAILABLE_MESSAGE},
-        )
-    if portal_status != PortalFolioStatus.ELIGIBLE:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={"reason": "FOLIO_NOT_ELIGIBLE", "message": _FOLIO_NOT_ELIGIBLE_MESSAGE},
-        )
+        raise_for_portal_status(PortalFolioStatus.UNAVAILABLE)
+    raise_for_portal_status(result.status)
 
     tenant_id = UUID(str(settings.DEFAULT_TENANT_ID))
     written_paths: list[Path] = []

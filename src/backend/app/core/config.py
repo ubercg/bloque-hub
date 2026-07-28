@@ -84,7 +84,11 @@ class Settings(BaseSettings):
     # Distinct from PORTAL_BASE_URL (display/link URL); this is the API host.
     PORTAL_API_BASE_URL: str = "https://portal.bloque.example"
     PORTAL_RETRY_ATTEMPTS: int = 3  # 1 initial + 2 retries
-    PORTAL_API_KEY: str | None = None  # optional; header added only if set
+    # REQ-013 §10 row 2: the legacy unsigned auth setting is fully RETIRED
+    # from this file — deleted, not defaulted to `None`. A stale `.env`
+    # entry stays inert (`extra="ignore"`); a stale *code* reference now
+    # fails loudly with `AttributeError` instead of silently reading `None`.
+    # See test_config.py's grep-style test.
     # REQ-013 (D9): HMAC credential pair for the real Portal integration route.
     # Annotated, NO default on purpose — a missing value must fail Settings()
     # construction at process start (loud, at boot) rather than at the first
