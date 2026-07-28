@@ -1,6 +1,7 @@
 import os
 
 import pytest
+from pydantic import ValidationError
 
 from app.core.config import Settings
 
@@ -29,3 +30,24 @@ def test_settings_has_required_attributes() -> None:
     assert hasattr(settings, "ALGORITHM")
     assert hasattr(settings, "ACCESS_TOKEN_EXPIRE_MINUTES")
     assert settings.ALGORITHM == "HS256"
+
+
+def test_settings_raises_without_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
+    # D9 (REQ-013 §9): PORTAL_HUB_API_KEY / PORTAL_HUB_API_SECRET have NO
+    # default, so a deploy missing either fails at Settings() construction
+    # (process start) rather than at the first request to the Portal gate.
+    monkeypatch.delenv("PORTAL_HUB_API_KEY", raising=False)
+    monkeypatch.delenv("PORTAL_HUB_API_SECRET", raising=False)
+
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)
+
+
+def test_settings_loads_portal_hub_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PORTAL_HUB_API_KEY", "test-key")
+    monkeypatch.setenv("PORTAL_HUB_API_SECRET", "test-secret")
+
+    settings = Settings()
+
+    assert settings.PORTAL_HUB_API_KEY == "test-key"
+    assert settings.PORTAL_HUB_API_SECRET == "test-secret"

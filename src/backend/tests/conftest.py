@@ -10,6 +10,15 @@ if _db_url.startswith("postgresql://") or _db_url.startswith("postgres://"):
     _netloc = f"bloque_app:bloque_app_secret@{_p.hostname or 'localhost'}:{_p.port or 5432}"
     os.environ["DATABASE_URL"] = urlunparse(_p._replace(netloc=_netloc))
 
+# REQ-013 (D9): PORTAL_HUB_API_KEY / PORTAL_HUB_API_SECRET have no default, so
+# importing app.core.config (below, via app.main) raises ValidationError
+# unless the environment already provides both. setdefault() so a real
+# environment value (CI secret, etc.) always wins over this local-double
+# fallback. Must run BEFORE any `app.*` import — mirrors the DATABASE_URL
+# pattern above.
+os.environ.setdefault("PORTAL_HUB_API_KEY", "test-portal-hub-key")
+os.environ.setdefault("PORTAL_HUB_API_SECRET", "test-portal-hub-secret")
+
 import jwt
 import pytest
 from fastapi.testclient import TestClient
