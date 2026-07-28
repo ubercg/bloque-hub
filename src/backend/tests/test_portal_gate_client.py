@@ -20,6 +20,7 @@ from app.modules.portal_gate.client import (
     PortalUnavailableError,
     validate_folio,
 )
+from app.modules.portal_gate.prefill import LeadPrefill
 from app.modules.portal_gate.signing import (
     API_KEY_HEADER,
     SIGNATURE_HEADER,
@@ -177,6 +178,69 @@ class TestValidateFolioPortalResponses:
 
         assert result.status == PortalFolioStatus.NOT_ELIGIBLE
         assert called["count"] == 1
+
+
+class TestValidateFolioPrefillWiring:
+    """Slice C wiring (design §6, §11): `_resolve_success` calls
+    `map_lead_prefill` on the REAL envelope shape — `data.lead_prefill`,
+    fixed in `portal-mock.py` (Slice E) — never a top-level `lead_prefill`
+    key."""
+
+    def test_eligible_with_lead_prefill_maps_into_result(self, monkeypatch):
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200,
+                json={
+                    "data": {
+                        "status": "quotation_in_progress",
+                        "lead_prefill": {
+                            "nombre_solicitante": "Ana Torres",
+                            "email_solicitante": "ana.torres@example.com",
+                            "telefono_solicitante": "5512345678",
+                            "numero_invitados": 150,
+                            "fecha_tentativa": "2026-08-20",
+                            "tipo_evento_sugerido": "boda",
+                            "espacio_requerido": "Salon Jacarandas",
+                            "comentarios": "Sonido especial.",
+                            "como_conociste_bloque": "redes_sociales",
+                            "ciudad": "Queretaro",
+                        },
+                    }
+                },
+            )
+
+        _patch_client(monkeypatch, handler)
+
+        result = validate_folio(VALID_FOLIO)
+
+        assert result.status == PortalFolioStatus.ELIGIBLE
+        assert isinstance(result.prefill, LeadPrefill)
+        assert result.prefill.nombre_completo == "Ana Torres"
+        assert result.prefill.correo_institucional == "ana.torres@example.com"
+        assert result.prefill.requerimientos_especiales == "Sonido especial."
+        assert not hasattr(result.prefill, "ciudad")
+
+    def test_eligible_without_lead_prefill_key_returns_all_none_prefill(self, monkeypatch):
+        _patch_client(
+            monkeypatch,
+            lambda request: httpx.Response(200, json=_eligible_envelope()),
+        )
+
+        result = validate_folio(VALID_FOLIO)
+
+        assert result.status == PortalFolioStatus.ELIGIBLE
+        assert result.prefill == LeadPrefill(*([None] * 11))
+
+    def test_not_eligible_result_never_carries_a_prefill(self, monkeypatch):
+        _patch_client(
+            monkeypatch,
+            lambda request: httpx.Response(200, json={"data": {"status": "quotation_sent"}}),
+        )
+
+        result = validate_folio(VALID_FOLIO)
+
+        assert result.status == PortalFolioStatus.NOT_ELIGIBLE
+        assert result.prefill is None
 
 
 class TestValidateFolioAuthFailureTaxonomy:

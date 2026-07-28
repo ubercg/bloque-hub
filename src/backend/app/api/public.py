@@ -33,6 +33,7 @@ from app.modules.notifications.templating import render
 from app.api.portal_gate_http import raise_for_portal_status
 from app.modules.portal_gate import client as portal_gate_client
 from app.modules.portal_gate.client import PortalFolioStatus, PortalUnavailableError, is_valid_folio_format
+from app.modules.portal_gate.prefill import LeadPrefill
 from app.modules.pricing.services import NoPricingRuleError
 from app.modules.reservation_documents.services import (
     _ALLOWED_MIME_NORMALIZED,
@@ -104,10 +105,35 @@ class FolioValidateRequest(BaseModel):
     folio: str
 
 
+class LeadPrefillOut(BaseModel):
+    """Flat Pydantic mirror of `LeadPrefill` (design §6). Populated ONLY on
+    `FolioValidateResponse` for an ELIGIBLE folio — never on any error
+    detail body and never on `QuoteRequestSubmitResponse` (task 5.12)."""
+
+    nombre_completo: str | None = None
+    cargo_puesto: str | None = None
+    institucion_organizacion: str | None = None
+    correo_institucional: str | None = None
+    telefono_contacto: str | None = None
+    asistentes_estimados: int | None = None
+    fecha_tentativa: str | None = None
+    tipo_evento_sugerido: str | None = None
+    espacio_requerido: str | None = None
+    requerimientos_especiales: str | None = None
+    como_conociste_bloque: str | None = None
+
+    model_config = {"from_attributes": True}
+
+
+def _lead_prefill_out(prefill: LeadPrefill | None) -> "LeadPrefillOut | None":
+    return LeadPrefillOut.model_validate(prefill) if prefill is not None else None
+
+
 class FolioValidateResponse(BaseModel):
     unlocked: bool
     folio: str
     portal_status: str
+    lead_prefill: LeadPrefillOut | None = None
 
 
 class QuoteRequestSubmitResponse(BaseModel):
@@ -149,6 +175,7 @@ def validate_quote_request_folio(request: Request, payload: FolioValidateRequest
         unlocked=True,
         folio=payload.folio,
         portal_status=portal_gate_client.PORTAL_ELIGIBLE_STATUS_VALUE,
+        lead_prefill=_lead_prefill_out(result.prefill),
     )
 
 

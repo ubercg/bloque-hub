@@ -20,6 +20,7 @@ import httpx
 
 from app.core.config import settings
 from app.modules.portal_gate.auth import PortalHmacAuth
+from app.modules.portal_gate.prefill import LeadPrefill, _masked_folio, map_lead_prefill
 
 logger = logging.getLogger(__name__)
 
@@ -85,18 +86,19 @@ class PortalGateResult:
     (RN-016) — a richer return type means the gate can carry `prefill` while
     submit only reads `.status`, without a second outbound-call function.
 
-    `prefill` is a placeholder (`None`) in this slice — the full
-    Portal-shape-to-Hub-shape mapping is Slice C (`prefill.py`). `error_code`
-    carries Portal's raw `error_code` for `INTEGRATION_AUTH_FAILURE`
-    diagnostics only; it is never surfaced to any Hub API response (RN-010).
+    `prefill` is populated (a `LeadPrefill`, never bare `None`) only when
+    `status is ELIGIBLE` — every other status carries `prefill=None` (Slice
+    C, `prefill.py`). `error_code` carries Portal's raw `error_code` for
+    `INTEGRATION_AUTH_FAILURE` diagnostics only; it is never surfaced to any
+    Hub API response (RN-010).
     """
 
     status: PortalFolioStatus
-    prefill: Any | None = None
+    prefill: LeadPrefill | None = None
     error_code: str | None = None
 
     @classmethod
-    def eligible(cls, prefill: Any | None = None) -> "PortalGateResult":
+    def eligible(cls, prefill: "LeadPrefill | None" = None) -> "PortalGateResult":
         return cls(status=PortalFolioStatus.ELIGIBLE, prefill=prefill)
 
     @classmethod
@@ -107,13 +109,6 @@ class PortalGateResult:
 def is_valid_folio_format(folio: str) -> bool:
     """RN-017: validate the folio format before ever calling Portal."""
     return bool(FOLIO_PATTERN.match(folio))
-
-
-def _masked_folio(folio: str) -> str:
-    """RN-018: never log the full folio — keep the prefix and last 4 digits."""
-    if len(folio) <= 4:
-        return "…"
-    return f"{folio[:4]}…-{folio[-4:]}"
 
 
 def _shape_keys(mapping: Any) -> list[str]:
@@ -170,8 +165,15 @@ def _extract_status(response: httpx.Response, folio: str, latency_ms: int) -> Po
 def _resolve_success(response: httpx.Response, folio: str, latency_ms: int) -> PortalGateResult:
     status_value = _extract_status(response, folio, latency_ms)
     if status_value == PortalFolioStatus.ELIGIBLE:
-        # `prefill=None` this slice — Slice C wires map_lead_prefill() here.
-        return PortalGateResult.eligible()
+        # Slice C (design §6, §11): `lead_prefill` lives NESTED under
+        # `data`, alongside `data.status` — never at the top level. A
+        # missing key degrades gracefully inside map_lead_prefill (RN-013),
+        # so this is never guarded by an `isinstance` check here.
+        body = response.json()
+        data = body.get("data") if isinstance(body, dict) else None
+        raw_prefill = data.get("lead_prefill") if isinstance(data, Mapping) else None
+        prefill = map_lead_prefill(raw_prefill, folio=folio)
+        return PortalGateResult.eligible(prefill=prefill)
     return PortalGateResult.of(status_value)
 
 

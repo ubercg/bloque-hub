@@ -15,6 +15,7 @@ from app.modules.crm.models import (
     ServicioApoyo,
     TipoEvento,
 )
+from app.core.limits import REQUERIMIENTOS_ESPECIALES_MAX_LENGTH
 from app.modules.portal_gate.client import is_valid_folio_format
 
 
@@ -190,7 +191,9 @@ class PublicQuoteRequestCreate(BaseModel):
     # legitimate reason to send more entries than there are enum values.
     servicios_apoyo: list[ServicioApoyo] = Field(default=[], max_length=len(ServicioApoyo))
     montaje_requerido: MontajeRequerido
-    requerimientos_especiales: str | None = Field(None, max_length=5000)
+    requerimientos_especiales: str | None = Field(
+        None, max_length=REQUERIMIENTOS_ESPECIALES_MAX_LENGTH
+    )
     material_externo: bool = False
     material_externo_detalle: str | None = Field(None, max_length=5000)
 
