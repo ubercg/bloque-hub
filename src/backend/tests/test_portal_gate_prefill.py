@@ -245,6 +245,74 @@ class TestCommentariosStructuralMapping:
         assert not hasattr(prefill, "comentarios")
         assert not hasattr(prefill, "descripcion_evento")
 
+    def test_comentarios_over_300_words_survives_prefill_without_word_cap(self):
+        """DoD / RN-021 motivating case: Portal comentarios can exceed the
+        300-word RN-006 cap that applies to `descripcion_evento`. Prefill must
+        still land the text on `requerimientos_especiales` (no word validator)
+        so a hydrated submit does not fail on a value the applicant never typed.
+        """
+        from pydantic import ValidationError
+
+        from app.modules.crm.models import (
+            CaracterEvento,
+            ComoConociste,
+            MontajeRequerido,
+            Sector,
+            TipoEvento,
+        )
+        from app.modules.crm.schemas import PublicQuoteRequestCreate
+
+        over_300 = " ".join(f"palabra{i}" for i in range(301))
+        assert len(over_300.split()) == 301
+
+        prefill = map_lead_prefill(
+            dict(_FULL_RAW, comentarios=over_300), folio=FOLIO
+        )
+        assert prefill.requerimientos_especiales is not None
+        assert len(prefill.requerimientos_especiales.split()) == 301
+        assert not hasattr(prefill, "descripcion_evento")
+
+        item = {
+            "space_id": "00000000-0000-4000-8000-000000000001",
+            "fecha": "2026-09-01",
+            "hora_inicio": "10:00:00",
+            "hora_fin": "12:00:00",
+        }
+        base_kwargs = dict(
+            folio=FOLIO,
+            tipo_evento=TipoEvento.CONFERENCIA,
+            caracter_evento=CaracterEvento.PUBLICO,
+            asistentes_estimados=50,
+            habra_prensa=False,
+            items=[item],
+            nombre_completo="Ana Lopez",
+            sector=Sector.GOBIERNO_MUNICIPAL_ESTATAL_FEDERAL,
+            correo_institucional="ana@example.com",
+            telefono_contacto="5555555555",
+            como_conociste_bloque=ComoConociste.REDES_SOCIALES,
+            montaje_requerido=MontajeRequerido.TEATRO,
+            acepta_info_correcta_autorizacion=True,
+            acepta_reglamento_y_aviso_privacidad=True,
+        )
+
+        # Contrast: the SAME 301 words in descripcion_evento trip RN-006.
+        with pytest.raises(ValidationError) as rn006:
+            PublicQuoteRequestCreate(
+                **base_kwargs,
+                descripcion_evento=over_300,
+                requerimientos_especiales=None,
+            )
+        assert "300" in str(rn006.value)
+
+        # Same 301 words on requerimientos_especiales validate cleanly —
+        # that field has no word-count rule (only the shared char cap).
+        ok = PublicQuoteRequestCreate(
+            **base_kwargs,
+            descripcion_evento="Evento corto",
+            requerimientos_especiales=prefill.requerimientos_especiales,
+        )
+        assert len(ok.requerimientos_especiales.split()) == 301
+
 
 class TestMaskedFolio:
     def test_masks_middle_of_folio(self):
