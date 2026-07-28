@@ -42,9 +42,9 @@ Tracker: feat/req013-portal-hmac (draft, no-merge, → main only at the end)
               │
               └─→ PR #3  feat/req013-03-client-happy-path      (Slice B1 — closes RISK-4)   ✅ done
                     │
-                    └─→ PR #4  feat/req013-04-error-taxonomy-mapping  (Slice B2 — ATOMIC)   ✅ done 📍
+                    └─→ PR #4  feat/req013-04-error-taxonomy-mapping  (Slice B2 — ATOMIC)   ✅ done
                           │
-                          └─→ PR #5  feat/req013-05-lead-prefill       (Slice C)
+                          └─→ PR #5  feat/req013-05-lead-prefill       (Slice C)   ✅ done 📍
                                 │
                                 └─→ PR #6  feat/req013-06-frontend-error-states (Slice D)
                                       │
@@ -147,18 +147,20 @@ Tracker: feat/req013-portal-hmac (draft, no-merge, → main only at the end)
 
 Purely additive on the API surface now — `raise_for_portal_status` already exists and both call sites already use it.
 
-- [ ] 5.1 `core/limits.py`: `REQUERIMIENTOS_ESPECIALES_MAX_LENGTH = 5000` (D5) — the single source, imported by `prefill.py` **and** `crm/schemas.py:193` (avoids the `crm → portal_gate → crm` import cycle risk).
-- [ ] 5.2 `crm/schemas.py:193` reads the shared constant instead of a hard-coded `5000`.
-- [ ] 5.3 `prefill.py`: `LeadPrefill` frozen dataclass (11 fields per design §6 — **no `ciudad` field**, delivery decision #5) + `_masked_folio()` helper.
-- [ ] 5.4 TDD, pure — no HTTP, per design §12's "pure `prefill.py` tests first": `map_lead_prefill()` complete-prefill case (all fields populated); all-null-keys degrades gracefully with no error and nothing logged as an error (spec: "Prefill hydration tolerates null keys").
-- [ ] 5.5 TDD: a malformed/garbage payload degrades to all-`None`s + logs `portal_gate.prefill_degraded` (`_shape_keys()` only) — does **not** change the folio status (RN-013: best-effort, never blocking).
-- [ ] 5.6 TDD: `_truncate()` invariant at lengths `limit-1`/`limit`/`limit+1`/`3*limit` — `len(result) <= limit` always; the truncation marker is counted **inside** the budget (delivery decision #3: visible marker, per Phase 0.1's frozen value).
-- [ ] 5.7 TDD: `portal_gate.prefill_truncated` log records the folio and `original_length` only — never the text.
-- [ ] 5.8 TDD: Portal's `comentarios` key maps **only** to `requerimientos_especiales`; the name `comentarios` does not exist past `prefill.py` (D7, makes RN-021 structural) — assert `descripcion_evento` is untouched by prefill.
-- [ ] 5.9 TDD: `ciudad` is never mapped — assert `LeadPrefill` has no `ciudad`-shaped field (delivery decision #5, Phase 0.4).
-- [ ] 5.10 API surface: `FolioValidateResponse.lead_prefill: LeadPrefillOut | None` — populated **only** on `ELIGIBLE` for the folio just queried.
-- [ ] 5.11 TDD: `lead_prefill` absent from the body on every `422`/`403`/`502`/`503` path (new coverage in both `test_public_quote_gate.py` and `test_public_quote_submit.py`) and absent from every log line.
-- [ ] 5.12 TDD: `lead_prefill` never appears on `QuoteRequestSubmitResponse`.
+- [x] 5.1 `core/limits.py`: `REQUERIMIENTOS_ESPECIALES_MAX_LENGTH = 5000` (D5) — the single source, imported by `prefill.py` **and** `crm/schemas.py:193` (avoids the `crm → portal_gate → crm` import cycle risk).
+- [x] 5.2 `crm/schemas.py:193` reads the shared constant instead of a hard-coded `5000`.
+- [x] 5.3 `prefill.py`: `LeadPrefill` frozen dataclass (11 fields per design §6 — **no `ciudad` field**, delivery decision #5) + `_masked_folio()` helper. *(`_masked_folio` moved here from `client.py`, deduped — `client.py` now imports it from `prefill.py` instead of keeping its own copy.)*
+- [x] 5.4 TDD, pure — no HTTP, per design §12's "pure `prefill.py` tests first": `map_lead_prefill()` complete-prefill case (all fields populated); all-null-keys degrades gracefully with no error and nothing logged as an error (spec: "Prefill hydration tolerates null keys").
+- [x] 5.5 TDD: a malformed/garbage payload degrades to all-`None`s + logs `portal_gate.prefill_degraded` (`_shape_keys()` only) — does **not** change the folio status (RN-013: best-effort, never blocking).
+- [x] 5.6 TDD: `_truncate()` invariant at lengths `limit-1`/`limit`/`limit+1`/`3*limit` — `len(result) <= limit` always; the truncation marker is counted **inside** the budget (delivery decision #3: visible marker, per Phase 0.1's frozen value).
+- [x] 5.7 TDD: `portal_gate.prefill_truncated` log records the folio and `original_length` only — never the text.
+- [x] 5.8 TDD: Portal's `comentarios` key maps **only** to `requerimientos_especiales`; the name `comentarios` does not exist past `prefill.py` (D7, makes RN-021 structural) — assert `descripcion_evento` is untouched by prefill.
+- [x] 5.9 TDD: `ciudad` is never mapped — assert `LeadPrefill` has no `ciudad`-shaped field (delivery decision #5, Phase 0.4).
+- [x] 5.10 API surface: `FolioValidateResponse.lead_prefill: LeadPrefillOut | None` — populated **only** on `ELIGIBLE` for the folio just queried.
+- [x] 5.11 TDD: `lead_prefill` absent from the body on every `422`/`403`/`502`/`503` path (new coverage in both `test_public_quote_gate.py` and `test_public_quote_submit.py`) and absent from every log line.
+- [x] 5.12 TDD: `lead_prefill` never appears on `QuoteRequestSubmitResponse`.
+
+**Real-envelope correction, discovered during apply (not in design.md's illustrative pseudocode):** Portal's actual `data.lead_prefill` keys, fixed by `portal-mock.py` in Slice E, are `nombre_solicitante` / `email_solicitante` / `telefono_solicitante` / `numero_invitados` — NOT the same names as the Hub-side `LeadPrefill` fields design §6's code sample implied. `map_lead_prefill` renames at the boundary accordingly; `cargo_puesto` / `institucion_organizacion` are read under their own names since the local double never sends them (absent key degrades identically to an explicit `null`, no error). Verified end-to-end with a live smoke test against all three eligible `portal-mock.py` fixtures (full prefill, all-null prefill, 5000-char truncation).
 
 *Depends on: Phase 4 (`raise_for_portal_status` must already exist on both call sites). Blocks: Phase 6.*
 
