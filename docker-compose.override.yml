@@ -2,16 +2,15 @@ services:
   backend:
     # Dev: recarga al cambiar código montado en ./src/backend/app (evita 500 por ORM viejo en memoria).
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--reload-dir", "/app/app"]
-    # REQ-013: apunta el gate de folio al double HMAC local de Portal + sede por defecto (Bloque). Quitar para revertir.
+    # REQ-013: PORTAL_API_BASE_URL / PORTAL_HUB_API_KEY / PORTAL_HUB_API_SECRET
+    # vienen de `.env` (gitignored). No hardcodear credenciales reales aquí —
+    # este archivo está trackeado por git.
+    # Para volver al double local: en `.env` poné
+    #   PORTAL_API_BASE_URL=http://portal-mock:9000
+    #   PORTAL_HUB_API_KEY=dev-local-portal-hub-key
+    #   PORTAL_HUB_API_SECRET=dev-local-portal-hub-secret
     environment:
-      PORTAL_API_BASE_URL: "http://portal-mock:9000"
       DEFAULT_TENANT_ID: "9fe8fa0f-dfbb-46ab-8786-893a29115b88"
-      # REQ-013 RN-020: par local-double ÚNICAMENTE. Estos valores nunca deben
-      # reutilizarse en ningún otro ambiente (staging/producción reciben pares
-      # distintos del equipo Portal, ver design.md §9/§8). Deben coincidir
-      # exactamente con el par del servicio portal-mock más abajo.
-      PORTAL_HUB_API_KEY: "dev-local-portal-hub-key"
-      PORTAL_HUB_API_SECRET: "dev-local-portal-hub-secret"
     volumes:
       # REQ-013: monta el double para que src/backend/tests/test_portal_mock.py
       # pueda cargarlo vía importlib.util.spec_from_file_location dentro del contenedor.
@@ -62,8 +61,8 @@ services:
     container_name: bloque-hub-portal-mock
     command: python /portal-mock.py
     environment:
-      # REQ-013 RN-020: mismo par local-double que el servicio backend arriba.
-      # Solo para este double local — nunca reutilizar en otro ambiente.
+      # REQ-013 RN-020: par local-double ÚNICAMENTE. Nunca reutilizar el par
+      # real de Portal aquí (ese vive en `.env` del backend).
       PORTAL_HUB_API_KEY: "dev-local-portal-hub-key"
       PORTAL_HUB_API_SECRET: "dev-local-portal-hub-secret"
     volumes:

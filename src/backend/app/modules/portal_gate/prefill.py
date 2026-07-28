@@ -86,8 +86,37 @@ def _int_or_none(value: Any) -> int | None:
         return None
 
 
+def _first_str(raw: Mapping[str, Any], *keys: str) -> str | None:
+    """First non-null among aliases. Portal real may send Hub names, the
+    local-double mock names, and/or English synonyms in the same object —
+    pick the first present value without inventing data (RN-013)."""
+    for key in keys:
+        if key not in raw:
+            continue
+        text = _str_or_none(raw.get(key))
+        if text is not None:
+            return text
+    return None
+
+
+def _first_int(raw: Mapping[str, Any], *keys: str) -> int | None:
+    for key in keys:
+        if key not in raw:
+            continue
+        number = _int_or_none(raw.get(key))
+        if number is not None:
+            return number
+    return None
+
+
 def _map_comentarios(value: Any, *, folio: str) -> str | None:
-    """The ONLY place Portal's `comentarios` key is ever read (D7)."""
+    """Rename boundary for free-text notes → `requerimientos_especiales` (D7).
+
+    Accepts Portal's `comentarios`, Hub-shaped `requerimientos_especiales`,
+    or English `special_notes` — whichever arrives first in the alias list
+    at the call site. Still the only path that can populate
+    `LeadPrefill.requerimientos_especiales` (RN-021).
+    """
     text = _str_or_none(value)
     if text is None:
         return None
@@ -128,18 +157,36 @@ def map_lead_prefill(raw: Mapping[str, Any] | None, *, folio: str) -> LeadPrefil
         _log_degraded(folio, raw)
         return _EMPTY_PREFILL
     try:
+        # Alias order (live smoke 2026-07-28 against Portal real): Hub-shaped
+        # keys Portal already sends → local-double names → English synonyms.
+        # `space_id` / `ciudad` are never read (RN-015 / delivery #5).
+        notes = _first_str(raw, "comentarios", "requerimientos_especiales", "special_notes")
         return LeadPrefill(
-            nombre_completo=_str_or_none(raw.get("nombre_solicitante")),
-            cargo_puesto=_str_or_none(raw.get("cargo_puesto")),
-            institucion_organizacion=_str_or_none(raw.get("institucion_organizacion")),
-            correo_institucional=_str_or_none(raw.get("email_solicitante")),
-            telefono_contacto=_str_or_none(raw.get("telefono_solicitante")),
-            asistentes_estimados=_int_or_none(raw.get("numero_invitados")),
-            fecha_tentativa=_str_or_none(raw.get("fecha_tentativa")),
-            tipo_evento_sugerido=_str_or_none(raw.get("tipo_evento_sugerido")),
-            espacio_requerido=_str_or_none(raw.get("espacio_requerido")),
-            requerimientos_especiales=_map_comentarios(raw.get("comentarios"), folio=folio),
-            como_conociste_bloque=_str_or_none(raw.get("como_conociste_bloque")),
+            nombre_completo=_first_str(
+                raw, "nombre_completo", "nombre_solicitante", "requestor_name"
+            ),
+            cargo_puesto=_first_str(raw, "cargo_puesto", "position"),
+            institucion_organizacion=_first_str(
+                raw, "institucion_organizacion", "institution"
+            ),
+            correo_institucional=_first_str(
+                raw, "correo_institucional", "email_solicitante", "contact_email"
+            ),
+            telefono_contacto=_first_str(
+                raw, "telefono_contacto", "telefono_solicitante", "contact_phone"
+            ),
+            asistentes_estimados=_first_int(
+                raw, "asistentes_estimados", "numero_invitados", "attendees"
+            ),
+            fecha_tentativa=_first_str(raw, "fecha_tentativa", "date"),
+            tipo_evento_sugerido=_first_str(
+                raw, "tipo_evento_sugerido", "event_type"
+            ),
+            espacio_requerido=_first_str(raw, "espacio_requerido"),
+            requerimientos_especiales=_map_comentarios(notes, folio=folio),
+            como_conociste_bloque=_first_str(
+                raw, "como_conociste_bloque", "how_learned_bloque"
+            ),
         )
     except Exception:  # noqa: BLE001 — RN-013: best-effort, must never raise
         _log_degraded(folio, raw)

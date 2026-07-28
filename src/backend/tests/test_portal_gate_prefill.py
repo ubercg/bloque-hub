@@ -110,6 +110,85 @@ class TestMapLeadPrefillCompleteCase:
         assert not hasattr(prefill, "ciudad")
 
 
+class TestMapLeadPrefillPortalRealAliases:
+    """Live Portal (2026-07-28) sends Hub-shaped keys + English synonyms in
+    the same object, and does NOT send the local-double names
+    (`nombre_solicitante` / `email_solicitante` / …). Prefill must read the
+    Hub names so Step 3 hydrates; `space_id` must still be ignored (RN-015).
+    """
+
+    _PORTAL_REAL_SHAPE = {
+        "nombre_completo": "Ana Real",
+        "nombre_solicitante": None,  # absent-equivalent on real Portal
+        "requestor_name": "Ana Real",
+        "cargo_puesto": "director",
+        "position": "director",
+        "institucion_organizacion": "silvercorp",
+        "institution": "silvercorp",
+        "correo_institucional": "ana@example.com",
+        "email_solicitante": None,
+        "contact_email": "ana@example.com",
+        "telefono_contacto": "5511111111",
+        "telefono_solicitante": None,
+        "contact_phone": "5511111111",
+        "asistentes_estimados": 40,
+        "numero_invitados": None,
+        "attendees": 40,
+        "fecha_tentativa": "2026-07-30",
+        "date": "2026-07-30",
+        "tipo_evento_sugerido": None,
+        "event_type": None,
+        "espacio_requerido": "Auditorio",
+        "comentarios": "ninguno",
+        "special_notes": "ninguno",
+        "como_conociste_bloque": "recomendacion",
+        "how_learned_bloque": "recomendacion",
+        "ciudad": "Queretaro",
+        "space_id": "should-never-become-espacio",
+    }
+
+    def test_hub_shaped_keys_hydrate_every_identity_field(self):
+        prefill = map_lead_prefill(self._PORTAL_REAL_SHAPE, folio=FOLIO)
+        assert prefill.nombre_completo == "Ana Real"
+        assert prefill.correo_institucional == "ana@example.com"
+        assert prefill.telefono_contacto == "5511111111"
+        assert prefill.asistentes_estimados == 40
+        assert prefill.cargo_puesto == "director"
+        assert prefill.institucion_organizacion == "silvercorp"
+        assert prefill.fecha_tentativa == "2026-07-30"
+        assert prefill.espacio_requerido == "Auditorio"
+        assert prefill.requerimientos_especiales == "ninguno"
+        assert prefill.como_conociste_bloque == "recomendacion"
+
+    def test_space_id_never_becomes_espacio_requerido(self):
+        raw = {"space_id": "uuid-of-doom", "espacio_requerido": None}
+        prefill = map_lead_prefill(raw, folio=FOLIO)
+        assert prefill.espacio_requerido is None
+
+    def test_english_only_payload_still_maps(self):
+        raw = {
+            "requestor_name": "Bob",
+            "contact_email": "bob@example.com",
+            "contact_phone": "5599999999",
+            "attendees": 12,
+            "special_notes": "wifi",
+            "how_learned_bloque": "redes_sociales",
+            "institution": "Acme",
+            "position": "PM",
+            "date": "2026-09-01",
+        }
+        prefill = map_lead_prefill(raw, folio=FOLIO)
+        assert prefill.nombre_completo == "Bob"
+        assert prefill.correo_institucional == "bob@example.com"
+        assert prefill.telefono_contacto == "5599999999"
+        assert prefill.asistentes_estimados == 12
+        assert prefill.requerimientos_especiales == "wifi"
+        assert prefill.como_conociste_bloque == "redes_sociales"
+        assert prefill.institucion_organizacion == "Acme"
+        assert prefill.cargo_puesto == "PM"
+        assert prefill.fecha_tentativa == "2026-09-01"
+
+
 class TestMapLeadPrefillNullAndAbsentKeys:
     def test_raw_none_degrades_to_all_none_silently(self, caplog):
         with caplog.at_level("WARNING"):
